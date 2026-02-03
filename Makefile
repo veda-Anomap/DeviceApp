@@ -1,8 +1,8 @@
 .SUFFIXES : .cpp .o 
 
-OBJ1 = device_app.o
+OBJ1 = device_app.o RtspServer.o AppController.o
 SRC1 = $(OBJ1:.o=.cpp)
-CC = aarch64-linux-gnu-gcc
+CXX = aarch64-linux-gnu-g++
 
 SYSROOT = $(HOME)/rpi_root
 CFLAGS += --sysroot=$(SYSROOT) \
@@ -27,10 +27,10 @@ INC = -I include
 all: device_app
 
 device_app: $(OBJ1)
-	$(CC) -o $@ $(OBJ1) $(LDFLAGS)
+	$(CXX) -o $@ $(OBJ1) $(LDFLAGS)
 
 .cpp.o:
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CXX) $(CFLAGS) -c $< -o $@
 
 clean:
 	rm *.o device_app 
