@@ -11,9 +11,9 @@ void RtspServer::start(const std::string& source_url, const std::string& mount_p
     GstRTSPMediaFactory *factory = gst_rtsp_media_factory_new();
 
     std::string pipeline = 
-    "( udpsrc port=5000 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! "
+    "( rtspsrc location=" + source_url_ + " latency=0 buffer-mode=0 protocols=udp ! "
     "rtph264depay ! "
-    "h264parse config-interval=1 ! " 
+    "h264parse config-interval=1 ! " // 여기서 한 번 더 확실히 잡아줍니다.
     "rtph264pay name=pay0 pt=96 config-interval=1 aggregate-mode=zero-latency )";
 
     gst_rtsp_media_factory_set_launch(factory, pipeline.c_str());
