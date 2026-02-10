@@ -49,9 +49,6 @@ void DeviceManager::stopDiscovery() {
     discovery_threads_.clear();
 }
 
-#include "DeviceManager.h"
-
-
 void DeviceManager::runBeaconReceiver() {
     std::cout << "[DEBUG] BeaconReceiver Thread: STARTING..." << std::endl; // 시작 확인
     int sockfd;
@@ -78,6 +75,7 @@ void DeviceManager::runBeaconReceiver() {
     }
     std::cout << "[DEBUG] BeaconReceiver: Bind SUCCESS! Listening on 10001..." << std::endl;
 
+    int next_port = 15001; // UDP 포트 시작 번호
     char buffer[1024];
     while (is_discovering_) { // atomic 플래그가 true인 동안 루프
         struct timeval tv;
@@ -93,22 +91,26 @@ void DeviceManager::runBeaconReceiver() {
             std::string sender_ip = inet_ntoa(cliaddr.sin_addr);
             std::string message(buffer);
 
-            // [핵심] 장치 등록 로직 호출
-            // 예: 비콘 메시지에 "SUB_CAMERA_READY" 등이 포함되어 있는지 확인
             if (message.find("SUB_PI_ALIVE") != std::string::npos) {
-                DeviceInfo info;
-                info.id = "SubPi_" + sender_ip; // IP 기반 ID 생성
-                info.ip = sender_ip;
-                info.type = "SUB_PI";
-                info.rtsp_url = "rtsp://" + sender_ip + ":8554/relay"; // 서브파이의 기본 RTSP 주소
-                info.is_online = true;
+                std::lock_guard<std::mutex> lock(device_mutex_);
+                std::string id = "SubPi_" + sender_ip;
 
-                // 뮤텍스로 보호하며 맵에 저장
-                {
-                    std::lock_guard<std::mutex> lock(device_mutex_);
-                    devices_[info.id] = info;
+                // 이미 등록된 장치인지 확인
+                if (devices_.find(id) == devices_.end()) {
+                    // 1. 카메라에 TCP로 스트리밍 시작 명령 전송
+                    if (requestStartStream(sender_ip, next_port)) {
+                        DeviceInfo info;
+                        info.id = id;
+                        info.ip = sender_ip;
+                        info.type = DeviceType::SUB_PI; // Enum 사용
+                        info.udp_listen_port = next_port++; // 포트 할당 후 증가
+                        info.is_online = true;
+
+                        devices_[id] = info;
+                        std::cout << "Beacon: Registered Sub-Pi at " << sender_ip 
+                                  << " (Port: " << info.udp_listen_port << ")" << std::endl;
+                    }
                 }
-                std::cout << "Beacon: New Sub-Pi discovered at " << sender_ip << std::endl;
             }
         }
     }
@@ -166,26 +168,49 @@ void DeviceManager::runOnvifScanner() {
             // [검증] 응답이 ProbeMatch인지 확인
             if (response.find("ProbeMatch") != std::string::npos) {
                 
-                // 중복 확인 및 등록
+                // 1. [최적화] 이미 등록된 IP인지 먼저 가볍게 확인 (락 걸고)
+                // 굳이 curl 또 날릴 필요 없으니까요.
+                bool already_registered = false;
                 {
                     std::lock_guard<std::mutex> lock(device_mutex_);
-                    
-                    // ID를 IP기반으로 단순화 (실제로는 UUID 파싱 권장)
-                    std::string id = "Hanwha_" + cam_ip;
+                    // 첫 번째 채널 ID가 있는지 확인해보면 됨
+                    std::string check_id = "Hanwha_" + cam_ip + "_CH_0"; 
+                    if (devices_.find(check_id) != devices_.end()) {
+                        already_registered = true;
+                    }
+                } // 여기서 락 자동 해제됨
 
-                    // 아직 맵에 없는 새로운 카메라라면?
+                // 이미 등록된 놈이면 무시하고 다음 패킷 기다림
+                if (already_registered) continue;
+
+
+                // 2. [오래 걸리는 작업] URL 수집 (락 없이 실행 -> UI 멈춤 방지!)
+                std::vector<std::string> urls = getRtspUrls(cam_ip);
+                if (urls.empty()) continue; // 실패시 패스
+
+
+                // 3. [등록] 정보를 다 가져왔으니 이제 락 걸고 장부에 기록
+                std::lock_guard<std::mutex> lock(device_mutex_);
+                
+                for (int i = 0; i < urls.size(); i++) {
+                    std::string rtsp_url = urls[i]; // [수정] urls[0] -> urls[i]
+                    
+                    // ID 생성 (Hanwha_192.168.0.40_CH_0 ...)
+                    std::string id = "Hanwha_" + cam_ip + "_CH_" + std::to_string(i);
+
+                    if (rtsp_url.empty()) break; // 혹시 빈 문자열이면 중단
+
+                    // (아까 확인했지만 더블 체크)
                     if (devices_.find(id) == devices_.end()) {
                         DeviceInfo info;
                         info.id = id;
                         info.ip = cam_ip;
-                        info.type = "HANWHA";
+                        info.type = DeviceType::HANWHA;
+                        info.source_url = rtsp_url;
                         info.is_online = true;
-                        
-                        // 한화 카메라 RTSP 주소 규칙 (프로파일2: 저해상도/NVR용)
-                        info.rtsp_url = "rtsp://admin:password@" + cam_ip + "/profile2/media.smp";
 
                         devices_[id] = info;
-                        std::cout << "ONVIF: Found Camera at " << cam_ip << std::endl;
+                        std::cout << "ONVIF: Registered Hanwha Camera: " << id << std::endl;
                     }
                 }
             }
@@ -211,6 +236,130 @@ std::vector<DeviceInfo> DeviceManager::getDeviceList() {
         list.push_back(pair.second);
     }
     return list; // 안전하게 복사된 리스트 반환
+}
+
+// [추가] TCP로 카메라에 명령을 보내는 헬퍼 함수
+bool DeviceManager::requestStartStream(const std::string& target_ip, int listen_port) {
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) return false;
+
+    struct sockaddr_in serv_addr;
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(10002); // 카메라의 TCP 제어 포트 (예: 10002)
+    inet_pton(AF_INET, target_ip.c_str(), &serv_addr.sin_addr);
+
+    // 타임아웃 설정 (연결 시도 2초)
+    struct timeval timeout = {2, 0};
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+
+    if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+        std::cerr << "[TCP] Connection failed to " << target_ip << std::endl;
+        close(sock);
+        return false;
+    }
+
+    // "나의 XX번 포트로 영상 쏴라"라는 메시지 전송
+    std::string msg = "START_STREAM:" + std::to_string(listen_port);
+    send(sock, msg.c_str(), msg.size(), 0);
+    
+    std::cout << "[TCP] Sent command to " << target_ip << " : " << msg << std::endl;
+    
+    close(sock);
+    return true;
+}
+
+std::vector<std::string> DeviceManager::getRtspUrls(const std::string& ip) {
+    std::vector<std::string> urls;
+    
+    // 최대 4채널까지만 찔러본다고 가정 (필요하면 16으로 늘리세요)
+    for (int ch = 0; ch < 4; ++ch) {
+        
+        // Channel 파라미터를 0, 1, 2, 3... 으로 바꿔가며 요청
+        std::string cmd = "curl --digest -u admin:5hanwha! -s --connect-timeout 2 "
+                      "\"http://" + ip + "/stw-cgi/media.cgi?msubmenu=streamuri&action=view&Channel=" + std::to_string(ch) + "&Profile=2&MediaType=Live&Mode=Full&StreamType=RTPUnicast&TransportProtocol=TCP&RTSPOverHTTP=False\" "
+                      "| grep \"URI\" | cut -d'=' -f2";
+
+        FILE* pipe = popen(cmd.c_str(), "r");
+        if (!pipe) break;
+
+        char buffer[512];
+        std::string result = "";
+        if (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+            result = buffer;
+        }
+        pclose(pipe);
+
+        // 줄바꿈 제거
+        while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
+            result.pop_back();
+        }
+        // 결과가 비어있거나 에러면 -> 더 이상 채널이 없다는 뜻 -> 루프 종료
+        if (result.empty() || result.find("Error") != std::string::npos) {
+            
+            // 만약 "첫 번째(0번)" 시도부터 에러가 났다면?
+            // -> "아, 얘는 NVR 방식(Channel=X)이 안 먹히는 놈이구나!"
+            // -> 그때만 1채널 전용 명령어를 시도한다.
+            if (ch == 0) {
+                std::cout << "[SmartCheck] Multi-channel failed. Trying single mode..." << std::endl;
+                std::string fallback_url = getSingleRtspUrl(ip); // 함수 이름은 getSingleChannelUrl 추천
+                if (!fallback_url.empty()) {
+                    urls.push_back(fallback_url);
+                }
+            }
+            
+            // ch가 1, 2, 3일 때 에러가 났다면?
+            // -> "아, 얘는 채널이 여기까지구나." 하고 그냥 쿨하게 종료.
+            break; 
+        }
+        
+        // 만약 결과가 "rtsp://192.168..." 로 시작하면 "rtsp://admin:5hanwha!@192.168..." 로 끼워넣기
+        size_t slash_pos = result.find("//");
+        if (slash_pos != std::string::npos) {
+            result.insert(slash_pos + 2, "admin:5hanwha!@");
+        }
+
+        urls.push_back(result);
+        std::cout << "[SmartCheck] Found Channel " << (ch+1) << ": " << result << std::endl;
+    }
+
+    return urls;
+}
+
+std::string DeviceManager::getSingleRtspUrl(const std::string& ip) {
+    // 1. 결과만 딱 뽑아오는 리눅스 명령어 조합
+    // (따옴표 처리에 주의하세요: C++ 문자열 안에서 쌍따옴표는 \" 로 써야 함)
+    std::string cmd = "curl --digest -u admin:5hanwha! -s --connect-timeout 2 "
+                      "\"http://" + ip + "/stw-cgi/media.cgi?msubmenu=streamuri&action=view&Profile=2&MediaType=Live&Mode=Full&StreamType=RTPUnicast&TransportProtocol=TCP&RTSPOverHTTP=False\" "
+                      "| grep \"URI\" | cut -d'=' -f2";
+
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) return ""; // 실행 실패 시 기본값
+
+    char buffer[512]; 
+    std::string result = "";
+    
+    // 2. 결과 읽기
+    if (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+        result = buffer;
+    }
+    pclose(pipe);
+
+    // [보완 1] 치명적인 줄바꿈(\n) 문자 제거 (핵심!)
+    if (!result.empty() && result.back() == '\n') {
+        result.pop_back();
+    }
+
+    if (result.empty() || result.find("Error") != std::string::npos) {   
+        return "";
+    }
+
+    size_t slash_pos = result.find("//");
+    if (slash_pos != std::string::npos) {
+        result.insert(slash_pos + 2, "admin:5hanwha!@");
+    }
+
+    return result;
 }
 
 DeviceManager::DeviceManager() : is_discovering_(false) {

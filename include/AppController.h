@@ -5,6 +5,8 @@
 #include "RtspServer.h"
 #include "QtCommServer.h"
 #include <memory>
+#include <set>    // 중복 등록 방지용
+#include <string>
 
 class AppController {
 public:
@@ -23,9 +25,18 @@ private:
 
     bool is_running_;
 
+    // [추가] 이미 RTSP 릴레이 파이프라인을 생성한 장치 ID 보관
+    // 이를 통해 매 루프마다 새로운 파이프라인이 중복 생성되는 것을 막습니다.
+    std::set<std::string> processed_relay_ids_;
+
+    // [추가] 장치 리스트를 체크하고 릴레이를 연결하는 내부 로직
+    void updateSystemState();
+
     // 이벤트 처리용 콜백 함수들
     void onNewDeviceFound(const DeviceInfo& info);
     void onQtCommandReceived(const std::string& targetId, const std::string& cmd);
+
+    void printStatus();
 };
 
 #endif

@@ -8,14 +8,8 @@
 #include <string>
 #include <map>
 
-// 장치 정보를 담는 구조체
-struct DeviceInfo {
-    std::string id;          // 고유 ID
-    std::string ip;          // IP 주소
-    std::string rtsp_url;    // RTSP 스트리밍 주소
-    std::string type;        // "HANWHA" 또는 "SUB_PI"
-    bool is_online;          // 현재 연결 상태
-};
+#include "Common.h"
+
 
 class DeviceManager {
 public:
@@ -42,6 +36,9 @@ private:
     // 스레드에서 실행될 함수들
     void runBeaconReceiver(); // UDP 10001 포트 감시
     void runOnvifScanner();    // ONVIF 스캔
+    bool requestStartStream(const std::string& target_ip, int listen_port); 
+    std::vector<std::string> getRtspUrls(const std::string& ip);
+    std::string getSingleRtspUrl(const std::string& ip);
 };
 
 #endif
