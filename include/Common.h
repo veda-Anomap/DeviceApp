@@ -12,12 +12,16 @@ struct DeviceInfo {
     std::string id;
     std::string ip;
     DeviceType type;
-    
-    // 타입별 데이터
-    std::string source_url; // HANWHA용 (rtsp://...)
-    int udp_listen_port;    // SUB_PI용 (15001...)
-    
     bool is_online;
+
+    // 타입별 데이터
+    // HANWHA용 (rtsp://...)
+    std::string source_url; 
+
+    // SUB_PI용 (15001...)
+    int udp_listen_port;    
+    int command_socket_fd;
+    
 };
 
 #endif

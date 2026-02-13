@@ -26,9 +26,13 @@ const std::string ONVIF_PROBE_MSG =
     "</e:Body>"
     "</e:Envelope>";
 
+//---------------------------------초기화, 정지, 생존여부------------------------
+
 void DeviceManager::startDiscovery() {
     if (is_discovering_) return; // 이미 실행 중이면 무시
     is_discovering_ = true;
+    is_monitoring_ = true;
+
     std::cout << "DeviceManager: Starting discovery threads..." << std::endl;
     
     // 10001번 포트 UDP 비콘 수신 스레드
@@ -36,10 +40,14 @@ void DeviceManager::startDiscovery() {
     
     // ONVIF 장치 스캔 스레드 (주기적 실행)
     discovery_threads_.emplace_back(&DeviceManager::runOnvifScanner, this);
+
+    // 장치 생존 여부 감시 스레드
+    discovery_threads_.emplace_back(&DeviceManager::monitorLoop, this);
 }
 
 void DeviceManager::stopDiscovery() {
     is_discovering_ = false; // 스레드 루프를 멈추게 하는 플래그
+    is_monitoring_ = false; // 모니터링 중지
 
     for (auto& t : discovery_threads_) {
         if (t.joinable()) {
@@ -48,6 +56,100 @@ void DeviceManager::stopDiscovery() {
     }
     discovery_threads_.clear();
 }
+
+void DeviceManager::monitorLoop() {
+    while (is_monitoring_) {
+        // 3초마다 검사
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+
+        std::map<std::string, DeviceInfo> devices_copy;
+        {
+            std::lock_guard<std::mutex> lock(device_mutex_);
+            for (auto& pair : devices_) {
+                devices_copy[pair.first] = pair.second;
+            }
+        }
+        
+        // 삭제할 장치들의 ID를 담을 리스트
+        std::vector<std::string> disconnected_devices;
+
+        for (auto& pair : devices_copy) {
+            std::string device_id = pair.first;
+            DeviceInfo& info = pair.second;
+
+            // Sub-Pi인 경우에만 체크 (한화 카메라는 TCP 연결 방식이 다를 수 있음)
+            // Sub-Pi인 경우에만 TCP 소켓 체크
+            if (info.type == DeviceType::SUB_PI) {
+                bool is_alive = true;
+
+                // -----------------------------------------------------------
+                // [체크 1] 상대방이 연결을 끊었는지(FIN) 확인 (가장 중요!)
+                // recv()가 0을 반환하면 상대방이 소켓을 닫았다는 뜻입니다.
+                // -----------------------------------------------------------
+                char buffer[1];
+                // MSG_PEEK: 데이터를 꺼내지 않고 살짝 보기만 함
+                // MSG_DONTWAIT: 기다리지 않고 즉시 리턴
+                int recv_result = recv(info.command_socket_fd, buffer, 1, MSG_PEEK | MSG_DONTWAIT);
+
+                if (recv_result == 0) {
+                    // 리턴값이 0이면 상대방이 정상 종료(Ctrl+C)한 것임
+                    std::cout << "[Monitor] Detected Closed Connection (recv=0): " << device_id << std::endl;
+                    is_alive = false;
+                }
+                else if (recv_result < 0) {
+                    // 에러가 났는데, "읽을 데이터 없음(EAGAIN)"이 아니면 진짜 에러
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        std::cout << "[Monitor] Recv Error: " << device_id << " (" << strerror(errno) << ")" << std::endl;
+                        is_alive = false;
+                    }
+                }
+
+                // -----------------------------------------------------------
+                // [체크 2] 쓰기 테스트 (Ping) - 갑작스러운 전원 차단 감지용
+                // -----------------------------------------------------------
+                if (is_alive) {
+                    int sent = send(info.command_socket_fd, nullptr, 0, MSG_NOSIGNAL | MSG_DONTWAIT);
+                    if (sent < 0) {
+                        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                            std::cout << "[Monitor] Send Error (Broken Pipe): " << device_id << std::endl;
+                            is_alive = false;
+                        }
+                    }
+                }
+
+                // 사망 확정 시 목록에 추가
+                if (!is_alive) {
+                    disconnected_devices.push_back(device_id);
+                }
+            }
+        }
+        // [청소] 죽은 장치들 목록에서 제거
+        for (const auto& id : disconnected_devices) {
+            // 소켓 닫기
+            if (devices_[id].command_socket_fd != -1) {
+                close(devices_[id].command_socket_fd);
+            }
+            // 맵에서 삭제
+            devices_.erase(id);
+        }
+        
+        if (!disconnected_devices.empty()) {
+            std::cout << "[DeviceManager] Cleanup Complete. Remaining devices: " << devices_.size() << std::endl;
+        }
+    }
+}
+
+std::vector<DeviceInfo> DeviceManager::getDeviceList() {
+    std::lock_guard<std::mutex> lock(device_mutex_); // [중요] 읽는 동안 쓰기 금지!
+    
+    std::vector<DeviceInfo> list;
+    for (const auto& pair : devices_) {
+        list.push_back(pair.second);
+    }
+    return list; // 안전하게 복사된 리스트 반환
+}
+
+//-------------------------------------------SUB PI--------------------------------------
 
 void DeviceManager::runBeaconReceiver() {
     std::cout << "[DEBUG] BeaconReceiver Thread: STARTING..." << std::endl; // 시작 확인
@@ -75,7 +177,7 @@ void DeviceManager::runBeaconReceiver() {
     }
     std::cout << "[DEBUG] BeaconReceiver: Bind SUCCESS! Listening on 10001..." << std::endl;
 
-    int next_port = 15001; // UDP 포트 시작 번호
+    
     char buffer[1024];
     while (is_discovering_) { // atomic 플래그가 true인 동안 루프
         struct timeval tv;
@@ -94,16 +196,17 @@ void DeviceManager::runBeaconReceiver() {
             if (message.find("SUB_PI_ALIVE") != std::string::npos) {
                 std::lock_guard<std::mutex> lock(device_mutex_);
                 std::string id = "SubPi_" + sender_ip;
-
+                int tcp_socket;
                 // 이미 등록된 장치인지 확인
                 if (devices_.find(id) == devices_.end()) {
                     // 1. 카메라에 TCP로 스트리밍 시작 명령 전송
-                    if (requestStartStream(sender_ip, next_port)) {
+                    if (requestStartStream(sender_ip, next_port, tcp_socket)) {
                         DeviceInfo info;
                         info.id = id;
                         info.ip = sender_ip;
                         info.type = DeviceType::SUB_PI; // Enum 사용
                         info.udp_listen_port = next_port++; // 포트 할당 후 증가
+                        info.command_socket_fd = tcp_socket;
                         info.is_online = true;
 
                         devices_[id] = info;
@@ -118,6 +221,39 @@ void DeviceManager::runBeaconReceiver() {
     close(sockfd);
     std::cout << "Beacon: Thread stopped." << std::endl;
 }
+
+// [추가] TCP로 카메라에 명령을 보내는 헬퍼 함수
+bool DeviceManager::requestStartStream(const std::string& target_ip, int listen_port, int& tcp_socket) {
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) return false;
+    tcp_socket = sock;
+
+    struct sockaddr_in serv_addr;
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(5000); // 카메라의 TCP 제어 포트 (예: 10002)
+    inet_pton(AF_INET, target_ip.c_str(), &serv_addr.sin_addr);
+
+    // 타임아웃 설정 (연결 시도 2초)
+    struct timeval timeout = {2, 0};
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+
+    if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+        std::cerr << "[TCP] Connection failed to " << target_ip << std::endl;
+        close(sock);
+        return false;
+    }
+
+    // "나의 XX번 포트로 영상 쏴라"라는 메시지 전송
+    std::string msg = "START_STREAM:" + std::to_string(listen_port);
+    send(sock, msg.c_str(), msg.size(), 0);
+    
+    std::cout << "[TCP] Sent command to " << target_ip << " : " << msg << std::endl;
+    
+    return true;
+}
+
+// ---------------------------------------ONVIF-------------------------------
 
 void DeviceManager::runOnvifScanner() {
     int sockfd;
@@ -228,47 +364,6 @@ void DeviceManager::runOnvifScanner() {
     std::cout << "ONVIF: Scanner thread stopped." << std::endl;
 }
 
-std::vector<DeviceInfo> DeviceManager::getDeviceList() {
-    std::lock_guard<std::mutex> lock(device_mutex_); // [중요] 읽는 동안 쓰기 금지!
-    
-    std::vector<DeviceInfo> list;
-    for (const auto& pair : devices_) {
-        list.push_back(pair.second);
-    }
-    return list; // 안전하게 복사된 리스트 반환
-}
-
-// [추가] TCP로 카메라에 명령을 보내는 헬퍼 함수
-bool DeviceManager::requestStartStream(const std::string& target_ip, int listen_port) {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) return false;
-
-    struct sockaddr_in serv_addr;
-    memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(10002); // 카메라의 TCP 제어 포트 (예: 10002)
-    inet_pton(AF_INET, target_ip.c_str(), &serv_addr.sin_addr);
-
-    // 타임아웃 설정 (연결 시도 2초)
-    struct timeval timeout = {2, 0};
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-
-    if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
-        std::cerr << "[TCP] Connection failed to " << target_ip << std::endl;
-        close(sock);
-        return false;
-    }
-
-    // "나의 XX번 포트로 영상 쏴라"라는 메시지 전송
-    std::string msg = "START_STREAM:" + std::to_string(listen_port);
-    send(sock, msg.c_str(), msg.size(), 0);
-    
-    std::cout << "[TCP] Sent command to " << target_ip << " : " << msg << std::endl;
-    
-    close(sock);
-    return true;
-}
-
 std::vector<std::string> DeviceManager::getRtspUrls(const std::string& ip) {
     std::vector<std::string> urls;
     
@@ -361,6 +456,8 @@ std::string DeviceManager::getSingleRtspUrl(const std::string& ip) {
 
     return result;
 }
+
+// ------------------------------생성, 소멸자------------------------------
 
 DeviceManager::DeviceManager() : is_discovering_(false) {
     std::cout << "[DEBUG] DeviceManager Created." << std::endl;
