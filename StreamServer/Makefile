@@ -1,7 +1,6 @@
-.SUFFIXES : .cpp .o 
+.SUFFIXES : .cpp .o
 
-OBJ1 = device_app.o RtspServer.o AppController.o DeviceManager.o QtCommServer.o
-SRC1 = $(OBJ1:.o=.cpp)
+OBJ = main.o QtCommServer.o RtspServer.o InternalClient.o
 CXX = aarch64-linux-gnu-g++
 
 SYSROOT = $(HOME)/rpi_root
@@ -10,7 +9,8 @@ CFLAGS += --sysroot=$(SYSROOT) \
           -I$(SYSROOT)/usr/include/glib-2.0 \
           -I$(SYSROOT)/usr/lib/aarch64-linux-gnu/glib-2.0/include \
           -I$(SYSROOT)/usr/lib/aarch64-linux-gnu/gstreamer-1.0/include \
-          -Iinclude
+          -Iinclude \
+          -I../common
 
 LDFLAGS += --sysroot=$(SYSROOT) \
            -L$(SYSROOT)/usr/lib/aarch64-linux-gnu \
@@ -20,20 +20,15 @@ LDFLAGS += --sysroot=$(SYSROOT) \
            -lgstrtspserver-1.0 -lgstreamer-1.0 -lgobject-2.0 -lglib-2.0 \
            -lpthread
 
-INC = -I include
-
 .PHONY: clean all
 
-all: device_app
+all: stream_server
 
-device_app: $(OBJ1)
-	$(CXX) -o $@ $(OBJ1) $(LDFLAGS)
+stream_server: $(OBJ)
+	$(CXX) -o $@ $(OBJ) $(LDFLAGS)
 
-.cpp.o:
+%.o: src/%.cpp
 	$(CXX) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm *.o device_app 
-
-dep: 
-	gccmakedep $(INC) $(SRC1)
+	rm -f *.o stream_server
