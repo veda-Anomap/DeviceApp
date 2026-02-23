@@ -1,6 +1,6 @@
 .SUFFIXES : .cpp .o
 
-OBJ = main.o QtCommServer.o RtspServer.o InternalClient.o
+OBJ = main.o StreamController.o QtCommServer.o RtspServer.o InternalClient.o
 CXX = aarch64-linux-gnu-g++
 
 SYSROOT = $(HOME)/rpi_root

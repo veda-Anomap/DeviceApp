@@ -9,7 +9,7 @@
 #include "InternalClient.h"
 
 InternalClient::InternalClient() {
-    cached_cameras_ = {{"cameras", json::array()}};
+    cached_cameras_ = json::array();
 }
 
 InternalClient::~InternalClient() {

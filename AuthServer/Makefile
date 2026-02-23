@@ -1,6 +1,6 @@
 .SUFFIXES : .cpp .o
 
-OBJ = main.o DeviceManager.o InternalServer.o
+OBJ = main.o AuthController.o DeviceManager.o InternalServer.o
 CXX = aarch64-linux-gnu-g++
 
 SYSROOT = $(HOME)/rpi_root
