@@ -35,6 +35,10 @@ private:
     // Qt 클라이언트 메시지 수신 콜백
     void onQtCommandReceived(int client_fd, MessageType type, const json& body);
 
+    // 카메라 리스트 JSON 생성 및 브로드캐스트
+    json buildCameraListJson();
+    void broadcastCameraList();
+
     void printStatus();
 };
 

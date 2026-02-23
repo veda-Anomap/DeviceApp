@@ -39,13 +39,20 @@ void AppController::run() {
     std::cout << "AppController: All threads are running." << std::endl;
     
     // 메인 스레드는 시스템 상태를 감시하거나 종료 신호를 대기합니다.
+    int tick = 0;
     while (is_running_) {
         // 1초마다 시스템 상태 업데이트 (릴레이 자동 생성 등)
         updateSystemState();
 
+        // 5초마다 연결된 Qt 클라이언트에 카메라 리스트 브로드캐스트
+        if (tick % 5 == 0) {
+            broadcastCameraList();
+        }
+
         printStatus();
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
+        tick++;
     }
 }
 
@@ -131,50 +138,62 @@ void AppController::printStatus() {
 void AppController::onQtCommandReceived(int client_fd, MessageType type, const json& body) {
     switch (type) {
         case MessageType::LOGIN: {
-            // TODO: 실제 인증 로직 추가
+            // 프로토타입: 인증 없이 바로 SUCCESS 응답 (JSON 없음)
             std::cout << "[AppController] LOGIN request received." << std::endl;
-            qt_server_->sendMessage(client_fd, MessageType::SUCCESS, {{"message", "Login OK"}});
+            qt_server_->sendMessage(client_fd, MessageType::SUCCESS, {});
+
+            // SUCCESS 후 바로 카메라 리스트 전송
+            qt_server_->sendMessage(client_fd, MessageType::CAMERA, buildCameraListJson());
+            std::cout << "[AppController] Sent SUCCESS + CAMERA list to fd: " << client_fd << std::endl;
             break;
         }
 
-        case MessageType::DEVICE: {
-            // 장치 리스트를 JSON으로 변환하여 응답
-            auto devices = device_mgr_->getDeviceList();
-            json device_list = json::array();
-
-            for (const auto& dev : devices) {
-                json d;
-                d["id"] = dev.id;
-                d["ip"] = dev.ip;
-                d["type"] = (dev.type == DeviceType::SUB_PI) ? "SUB_PI" : "HANWHA";
-                d["is_online"] = dev.is_online;
-
-                if (dev.type == DeviceType::SUB_PI) {
-                    d["udp_port"] = dev.udp_listen_port;
-                } else {
-                    d["source_url"] = dev.source_url;
-                }
-
-                device_list.push_back(d);
-            }
-
-            qt_server_->sendMessage(client_fd, MessageType::DEVICE, {{"devices", device_list}});
-            std::cout << "[AppController] DEVICE list sent. Count: " << devices.size() << std::endl;
+        case MessageType::CAMERA: {
+            // 클라이언트가 카메라 리스트 요청 시 응답
+            qt_server_->sendMessage(client_fd, MessageType::CAMERA, buildCameraListJson());
+            std::cout << "[AppController] CAMERA list sent on request." << std::endl;
             break;
         }
 
         case MessageType::AI: {
-            // AI 관련 메타데이터 처리 (서브 카메라에서 전달된 이벤트 등)
             std::cout << "[AppController] AI event received: " << body.dump() << std::endl;
-            // TODO: Qt 클라이언트에 브로드캐스트
             qt_server_->broadcast(MessageType::AI, body);
             break;
         }
 
         default: {
-            // 알 수 없는 타입 -> ACK 응답
             qt_server_->sendMessage(client_fd, MessageType::ACK, {{"message", "received"}});
             break;
         }
     }
+}
+
+// ======================== 카메라 리스트 ========================
+
+json AppController::buildCameraListJson() {
+    auto devices = device_mgr_->getDeviceList();
+    json camera_list = json::array();
+
+    for (const auto& dev : devices) {
+        json d;
+        d["id"] = dev.id;
+        d["ip"] = dev.ip;
+        d["type"] = (dev.type == DeviceType::SUB_PI) ? "SUB_PI" : "HANWHA";
+        d["is_online"] = dev.is_online;
+
+        if (dev.type == DeviceType::SUB_PI) {
+            d["udp_port"] = dev.udp_listen_port;
+        } else {
+            d["source_url"] = dev.source_url;
+        }
+
+        camera_list.push_back(d);
+    }
+
+    return {{"cameras", camera_list}};
+}
+
+void AppController::broadcastCameraList() {
+    json camera_json = buildCameraListJson();
+    qt_server_->broadcast(MessageType::CAMERA, camera_json);
 }
