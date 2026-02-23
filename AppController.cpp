@@ -10,7 +10,7 @@ AppController::AppController() : is_running_(false) {
     // 컴포넌트 생성
     device_mgr_ = std::make_unique<DeviceManager>();
     relay_server_ = std::make_unique<RtspServer>();
-    //qt_server_ = std::make_unique<QtCommServer>();
+    qt_server_ = std::make_unique<QtCommServer>();
 }
 
 AppController::~AppController() {
@@ -30,8 +30,9 @@ void AppController::run() {
     relay_server_->start(); 
 
     // 3. Qt 통신 서버 시작 (포트 20000 대기 스레드 생성)
-    // qt_server 내부에서 std::thread를 생성하도록 설계합니다.
-    //qt_server_->start(20000); 
+    qt_server_->start(20000, [this](int client_fd, MessageType type, const json& body) {
+        onQtCommandReceived(client_fd, type, body);
+    });
 
     
 
@@ -52,11 +53,10 @@ void AppController::stop() {
     if (is_running_) {
         is_running_ = false;
         device_mgr_->stopDiscovery();
+        relay_server_->stop();
+        qt_server_->stop();
         std::cout << "AppController: Stopped." << std::endl;
-    }    
-    // 안전한 종료 순서
-    //relay_server_->stop();
-    //qt_server_->stop();
+    }
 }
 
 void AppController::updateSystemState() {
@@ -124,4 +124,57 @@ void AppController::printStatus() {
         }
     }
     std::cout << "----------------------------------------------------------------------" << std::endl;
+}
+
+// ======================== Qt 메시지 처리 콜백 ========================
+
+void AppController::onQtCommandReceived(int client_fd, MessageType type, const json& body) {
+    switch (type) {
+        case MessageType::LOGIN: {
+            // TODO: 실제 인증 로직 추가
+            std::cout << "[AppController] LOGIN request received." << std::endl;
+            qt_server_->sendMessage(client_fd, MessageType::SUCCESS, {{"message", "Login OK"}});
+            break;
+        }
+
+        case MessageType::DEVICE: {
+            // 장치 리스트를 JSON으로 변환하여 응답
+            auto devices = device_mgr_->getDeviceList();
+            json device_list = json::array();
+
+            for (const auto& dev : devices) {
+                json d;
+                d["id"] = dev.id;
+                d["ip"] = dev.ip;
+                d["type"] = (dev.type == DeviceType::SUB_PI) ? "SUB_PI" : "HANWHA";
+                d["is_online"] = dev.is_online;
+
+                if (dev.type == DeviceType::SUB_PI) {
+                    d["udp_port"] = dev.udp_listen_port;
+                } else {
+                    d["source_url"] = dev.source_url;
+                }
+
+                device_list.push_back(d);
+            }
+
+            qt_server_->sendMessage(client_fd, MessageType::DEVICE, {{"devices", device_list}});
+            std::cout << "[AppController] DEVICE list sent. Count: " << devices.size() << std::endl;
+            break;
+        }
+
+        case MessageType::AI: {
+            // AI 관련 메타데이터 처리 (서브 카메라에서 전달된 이벤트 등)
+            std::cout << "[AppController] AI event received: " << body.dump() << std::endl;
+            // TODO: Qt 클라이언트에 브로드캐스트
+            qt_server_->broadcast(MessageType::AI, body);
+            break;
+        }
+
+        default: {
+            // 알 수 없는 타입 -> ACK 응답
+            qt_server_->sendMessage(client_fd, MessageType::ACK, {{"message", "received"}});
+            break;
+        }
+    }
 }

@@ -1,6 +1,6 @@
 .SUFFIXES : .cpp .o 
 
-OBJ1 = device_app.o RtspServer.o AppController.o DeviceManager.o
+OBJ1 = device_app.o RtspServer.o AppController.o DeviceManager.o QtCommServer.o
 SRC1 = $(OBJ1:.o=.cpp)
 CXX = aarch64-linux-gnu-g++
 

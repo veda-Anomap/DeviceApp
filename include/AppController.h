@@ -32,9 +32,8 @@ private:
     // [추가] 장치 리스트를 체크하고 릴레이를 연결하는 내부 로직
     void updateSystemState();
 
-    // 이벤트 처리용 콜백 함수들
-    void onNewDeviceFound(const DeviceInfo& info);
-    void onQtCommandReceived(const std::string& targetId, const std::string& cmd);
+    // Qt 클라이언트 메시지 수신 콜백
+    void onQtCommandReceived(int client_fd, MessageType type, const json& body);
 
     void printStatus();
 };
