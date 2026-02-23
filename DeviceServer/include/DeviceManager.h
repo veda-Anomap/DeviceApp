@@ -7,6 +7,7 @@
 #include <mutex>
 #include <string>
 #include <map>
+#include <functional>
 
 #include "Common.h"
 
@@ -21,6 +22,10 @@ public:
     void stopDiscovery();
 
     std::vector<DeviceInfo> getDeviceList();
+
+    // 새 장치 등록 시 호출되는 콜백 설정
+    using DeviceCallback = std::function<void(const DeviceInfo&)>;
+    void setOnDeviceRegistered(DeviceCallback cb) { on_device_registered_ = cb; }
 private:
     // 1. 스레드 관리를 위한 벡터
     std::vector<std::thread> discovery_threads_;
@@ -38,6 +43,9 @@ private:
 
      // UDP 포트 시작 번호
     int next_port = 15001;
+
+    // 새 장치 등록 콜백
+    DeviceCallback on_device_registered_;
 
     // 스레드에서 실행될 함수들
     void runBeaconReceiver();   // UDP Beacon 감지

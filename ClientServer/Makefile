@@ -1,6 +1,6 @@
 .SUFFIXES : .cpp .o
 
-OBJ = main.o AuthController.o DeviceManager.o InternalServer.o
+OBJ = main.o ClientController.o QtCommServer.o InternalClient.o
 CXX = aarch64-linux-gnu-g++
 
 SYSROOT = $(HOME)/rpi_root
@@ -17,18 +17,17 @@ LDFLAGS += --sysroot=$(SYSROOT) \
            -L$(SYSROOT)/lib/aarch64-linux-gnu \
            -Wl,-rpath-link=$(SYSROOT)/usr/lib/aarch64-linux-gnu \
            -Wl,-rpath-link=$(SYSROOT)/lib/aarch64-linux-gnu \
-           -lgstreamer-1.0 -lgobject-2.0 -lglib-2.0 \
-           -lpthread -lcurl
+           -lpthread
 
 .PHONY: clean all
 
-all: auth_server
+all: client_server
 
-auth_server: $(OBJ)
+client_server: $(OBJ)
 	$(CXX) -o $@ $(OBJ) $(LDFLAGS)
 
 %.o: src/%.cpp
 	$(CXX) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f *.o auth_server
+	rm -f *.o client_server

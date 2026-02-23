@@ -212,6 +212,11 @@ void DeviceManager::runBeaconReceiver() {
                         devices_[id] = info;
                         std::cout << "Beacon: Registered Sub-Pi at " << sender_ip 
                                   << " (Port: " << info.udp_listen_port << ")" << std::endl;
+                        
+                        // 콜백 호출 (RTSP 릴레이 자동 생성 등)
+                        if (on_device_registered_) {
+                            on_device_registered_(info);
+                        }
                     }
                 }
             }
@@ -347,6 +352,10 @@ void DeviceManager::runOnvifScanner() {
 
                         devices_[id] = info;
                         std::cout << "ONVIF: Registered Hanwha Camera: " << id << std::endl;
+
+                        if (on_device_registered_) {
+                            on_device_registered_(info);
+                        }
                     }
                 }
             }

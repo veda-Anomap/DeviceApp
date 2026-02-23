@@ -1,30 +1,27 @@
 #include <iostream>
 #include <thread>
 
-#include "StreamController.h"
+#include "ClientController.h"
 
-StreamController::StreamController() {}
-StreamController::~StreamController() { stop(); }
+ClientController::ClientController() {}
+ClientController::~ClientController() { stop(); }
 
-void StreamController::run() {
+void ClientController::run() {
     std::cout << "========================================" << std::endl;
-    std::cout << "   StreamServer - Qt Comm + RTSP" << std::endl;
+    std::cout << "   ClientServer - Qt Communication" << std::endl;
     std::cout << "========================================" << std::endl;
 
     is_running_ = true;
 
-    // 1. AuthServer에 접속 (카메라 리스트 수신용)
+    // 1. DeviceServer에 접속 (카메라 리스트 수신용)
     internal_client_.start("127.0.0.1", 30000);
 
-    // 2. RTSP 릴레이 서버 시작
-    rtsp_server_.start();
-
-    // 3. Qt 통신 서버 시작
+    // 2. Qt 통신 서버 시작
     qt_server_.start(20000, [this](int client_fd, MessageType type, const json& body) {
         onQtMessage(client_fd, type, body);
     });
 
-    std::cout << "[StreamServer] Running. Press Ctrl+C to stop." << std::endl;
+    std::cout << "[ClientServer] Running. Press Ctrl+C to stop." << std::endl;
 
     // 메인 스레드: 주기적으로 카메라 리스트 브로드캐스트
     int tick = 0;
@@ -39,22 +36,20 @@ void StreamController::run() {
     }
 }
 
-void StreamController::stop() {
+void ClientController::stop() {
     if (!is_running_) return;
     is_running_ = false;
     qt_server_.stop();
-    rtsp_server_.stop();
     internal_client_.stop();
-    std::cout << "[StreamServer] Stopped." << std::endl;
+    std::cout << "[ClientServer] Stopped." << std::endl;
 }
 
-void StreamController::onQtMessage(int client_fd, MessageType type, const json& body) {
+void ClientController::onQtMessage(int client_fd, MessageType type, const json& body) {
     switch (type) {
         case MessageType::LOGIN: {
-            std::cout << "[StreamServer] LOGIN request." << std::endl;
+            std::cout << "[ClientServer] LOGIN request." << std::endl;
             qt_server_.sendMessage(client_fd, MessageType::SUCCESS, {});
 
-            // SUCCESS 후 바로 카메라 리스트 전송
             json cameras = internal_client_.getCameraList();
             qt_server_.sendMessage(client_fd, MessageType::CAMERA, cameras);
             break;
@@ -67,7 +62,7 @@ void StreamController::onQtMessage(int client_fd, MessageType type, const json& 
         }
 
         case MessageType::AI: {
-            std::cout << "[StreamServer] AI event: " << body.dump() << std::endl;
+            std::cout << "[ClientServer] AI event: " << body.dump() << std::endl;
             qt_server_.broadcast(MessageType::AI, body);
             break;
         }

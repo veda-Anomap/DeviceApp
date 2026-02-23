@@ -1,23 +1,25 @@
-#ifndef AUTH_CONTROLLER_H
-#define AUTH_CONTROLLER_H
+#ifndef DEVICE_CONTROLLER_H
+#define DEVICE_CONTROLLER_H
 
 #include <atomic>
 
 #include "DeviceManager.h"
 #include "InternalServer.h"
+#include "RtspServer.h"
 
-class AuthController {
+class DeviceController {
 public:
-    AuthController();
-    ~AuthController();
+    DeviceController();
+    ~DeviceController();
 
-    void run();   // 블로킹 — Ctrl+C까지 실행
+    void run();
     void stop();
 
 private:
     json buildCameraListJson();
 
     DeviceManager device_mgr_;
+    RtspServer rtsp_server_;
     InternalServer internal_server_;
     std::atomic<bool> is_running_{false};
 };

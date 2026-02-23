@@ -1,6 +1,6 @@
 .SUFFIXES : .cpp .o
 
-OBJ = main.o StreamController.o QtCommServer.o RtspServer.o InternalClient.o
+OBJ = main.o DeviceController.o DeviceManager.o RtspServer.o InternalServer.o
 CXX = aarch64-linux-gnu-g++
 
 SYSROOT = $(HOME)/rpi_root
@@ -18,17 +18,17 @@ LDFLAGS += --sysroot=$(SYSROOT) \
            -Wl,-rpath-link=$(SYSROOT)/usr/lib/aarch64-linux-gnu \
            -Wl,-rpath-link=$(SYSROOT)/lib/aarch64-linux-gnu \
            -lgstrtspserver-1.0 -lgstreamer-1.0 -lgobject-2.0 -lglib-2.0 \
-           -lpthread
+           -lpthread -lcurl
 
 .PHONY: clean all
 
-all: stream_server
+all: device_server
 
-stream_server: $(OBJ)
+device_server: $(OBJ)
 	$(CXX) -o $@ $(OBJ) $(LDFLAGS)
 
 %.o: src/%.cpp
 	$(CXX) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f *.o stream_server
+	rm -f *.o device_server
