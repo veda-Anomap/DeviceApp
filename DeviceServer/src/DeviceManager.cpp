@@ -123,17 +123,17 @@ void DeviceManager::monitorLoop() {
                 }
             }
         }
-        // [청소] 죽은 장치들 목록에서 제거
-        for (const auto& id : disconnected_devices) {
-            // 소켓 닫기
-            if (devices_[id].command_socket_fd != -1) {
-                close(devices_[id].command_socket_fd);
-            }
-            // 맵에서 삭제
-            devices_.erase(id);
-        }
-        
+        // [청소] 죽은 장치들 목록에서 제거 (뮤텍스 필수!)
         if (!disconnected_devices.empty()) {
+            std::lock_guard<std::mutex> lock(device_mutex_);
+            for (const auto& id : disconnected_devices) {
+                // 소켓 닫기
+                if (devices_[id].command_socket_fd != -1) {
+                    close(devices_[id].command_socket_fd);
+                }
+                // 맵에서 삭제
+                devices_.erase(id);
+            }
             std::cout << "[DeviceManager] Cleanup Complete. Remaining devices: " << devices_.size() << std::endl;
         }
     }
