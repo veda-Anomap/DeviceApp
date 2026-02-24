@@ -33,6 +33,9 @@ public:
     // 연결된 모든 클라이언트에게 브로드캐스트
     void broadcast(MessageType type, const json& body);
 
+    // 현재 연결된 클라이언트 수
+    int getClientCount();
+
 private:
     // 클라이언트 접속 수락 루프
     void acceptLoop();

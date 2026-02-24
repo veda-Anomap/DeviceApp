@@ -5,6 +5,7 @@
 
 #include "QtCommServer.h"
 #include "InternalClient.h"
+#include "SystemMonitor.h"
 
 class ClientController {
 public:
@@ -19,6 +20,7 @@ private:
 
     InternalClient internal_client_;
     QtCommServer qt_server_;
+    SystemMonitor sys_monitor_;
     std::atomic<bool> is_running_{false};
 };
 

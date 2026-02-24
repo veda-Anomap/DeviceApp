@@ -29,6 +29,11 @@ void ClientController::run() {
         if (tick % 5 == 0) {
             json cameras = internal_client_.getCameraList();
             qt_server_.broadcast(MessageType::CAMERA, cameras);
+
+            json sysinfo = sys_monitor_.getStatus();
+            sysinfo["cameras_connected"] = cameras.size();
+            sysinfo["clients_connected"] = qt_server_.getClientCount();
+            qt_server_.broadcast(MessageType::AVAILABLE, sysinfo);
         }
 
         std::this_thread::sleep_for(std::chrono::seconds(1));

@@ -241,6 +241,11 @@ void QtCommServer::broadcast(MessageType type, const json& body) {
     }
 }
 
+int QtCommServer::getClientCount() {
+    std::lock_guard<std::mutex> lock(client_mutex_);
+    return static_cast<int>(client_fds_.size());
+}
+
 // ======================== 헬퍼 함수 ========================
 
 bool QtCommServer::recvExact(int fd, void* buf, size_t len) {

@@ -1,6 +1,6 @@
 .SUFFIXES : .cpp .o
 
-OBJ = main.o ClientController.o QtCommServer.o InternalClient.o
+OBJ = main.o ClientController.o QtCommServer.o InternalClient.o SystemMonitor.o
 CXX = aarch64-linux-gnu-g++
 
 SYSROOT = $(HOME)/rpi_root
