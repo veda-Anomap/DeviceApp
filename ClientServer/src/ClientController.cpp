@@ -72,7 +72,7 @@ void ClientController::onQtMessage(int client_fd, MessageType type, const json& 
             break;
         }
 
-        case MessageType::AI: {
+        case MessageType::AI: { // qt에서 ai 요청 있을 시에 사용, 없으면 지울 예정
             std::cout << "[ClientServer] AI event: " << body.dump() << std::endl;
             qt_server_.broadcast(MessageType::AI, body);
             break;

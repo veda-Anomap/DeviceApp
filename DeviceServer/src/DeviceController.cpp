@@ -61,8 +61,6 @@ json DeviceController::buildCameraListJson() {
 
     for (const auto& dev : devices) {
         json d;
-        d["id"] = dev.id;
-        d["ip"] = dev.ip;
         d["is_online"] = dev.is_online;
 
         if (dev.type == DeviceType::SUB_PI) {

@@ -37,7 +37,9 @@ enum class MessageType : uint8_t {
     DEVICE    = 0x04,  // 장치 제어 (추후 사용)
     AVAILABLE = 0x05,  // 장치 사용 수치
     AI        = 0x06,  // AI 관련 메타데이터
-    CAMERA    = 0x07   // 카메라 리스트
+    CAMERA    = 0x07,  // 카메라 리스트
+    ASSIGN    = 0x08,  // 회원 등록
+    META      = 0x09,  // 센서 데이터
 };
 
 // 패킷 헤더 (총 5바이트: Type 1 + BodyLength 4)
