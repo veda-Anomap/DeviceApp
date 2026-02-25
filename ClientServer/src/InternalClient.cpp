@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <cerrno>
+#include <sys/select.h>
 
 #include "InternalClient.h"
 
@@ -47,7 +48,7 @@ json InternalClient::getCameraList() {
 
 void InternalClient::connectionLoop() {
     while (is_running_) {
-        // 1. AuthServer에 TCP 접속
+        // 1. DeviceServer에 TCP 접속
         int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
         if (sock_fd < 0) {
             std::cerr << "[InternalClient] Socket creation failed." << std::endl;
@@ -68,29 +69,77 @@ void InternalClient::connectionLoop() {
             continue;
         }
 
-        std::cout << "[InternalClient] Connected to AuthServer." << std::endl;
+        std::cout << "[InternalClient] Connected to DeviceServer." << std::endl;
 
-        // 2. 연결 유지하면서 주기적으로 카메라 리스트 요청
+        // 2. 연결 유지: 5초마다 카메라 요청 + 그 사이 AI 이벤트 수신
+        auto last_request = std::chrono::steady_clock::now();
+
         while (is_running_) {
-            json result = requestCameraList(sock_fd);
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_request).count();
 
-            if (result.is_null()) {
-                std::cout << "[InternalClient] AuthServer disconnected. Reconnecting..." << std::endl;
-                break; // 재연결 시도
+            // 5초 경과 시 카메라 리스트 요청
+            if (elapsed >= 5) {
+                json result = requestCameraList(sock_fd);
+                if (result.is_null()) {
+                    std::cout << "[InternalClient] DeviceServer disconnected. Reconnecting..." << std::endl;
+                    break;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(cache_mutex_);
+                    cached_cameras_ = result;
+                }
+                last_request = std::chrono::steady_clock::now();
             }
 
-            // 캐시 업데이트
-            {
-                std::lock_guard<std::mutex> lock(cache_mutex_);
-                cached_cameras_ = result;
+            // select로 1초 대기하며 AI 이벤트 확인
+            if (!handleIncoming(sock_fd)) {
+                std::cout << "[InternalClient] DeviceServer disconnected (AI recv). Reconnecting..." << std::endl;
+                break;
             }
-
-            // 5초 대기 후 다시 요청
-            std::this_thread::sleep_for(std::chrono::seconds(5));
         }
 
         close(sock_fd);
     }
+}
+
+bool InternalClient::handleIncoming(int sock_fd) {
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(sock_fd, &read_fds);
+
+    struct timeval tv;
+    tv.tv_sec = 1;   // 1초 대기
+    tv.tv_usec = 0;
+
+    int ret = select(sock_fd + 1, &read_fds, nullptr, nullptr, &tv);
+    if (ret < 0) return false;          // 에러
+    if (ret == 0) return true;           // 타임아웃 (데이터 없음, 정상)
+
+    // 데이터 있음 → 헤더 읽기
+    PacketHeader header;
+    if (!recvExact(sock_fd, &header, sizeof(header))) return false;
+
+    uint32_t body_len = ntohl(header.body_length);
+    if (body_len == 0 || body_len > 1024 * 1024) return true;
+
+    std::vector<char> buf(body_len);
+    if (!recvExact(sock_fd, buf.data(), body_len)) return false;
+
+    try {
+        json body = json::parse(std::string(buf.begin(), buf.end()));
+
+        if (header.type == MessageType::AI) {
+            std::cout << "[InternalClient] AI event received: " << body.dump() << std::endl;
+            if (on_ai_event_) {
+                on_ai_event_(body);
+            }
+        }
+    } catch (...) {
+        std::cerr << "[InternalClient] JSON parse error." << std::endl;
+    }
+
+    return true;
 }
 
 json InternalClient::requestCameraList(int sock_fd) {

@@ -13,7 +13,13 @@ void ClientController::run() {
 
     is_running_ = true;
 
-    // 1. DeviceServer에 접속 (카메라 리스트 수신용)
+    // 1. AI 이벤트 수신 → Qt에 즉시 브로드캐스트
+    internal_client_.setOnAiEvent([this](const json& event) {
+        std::cout << "[ClientServer] AI event → Qt broadcast" << std::endl;
+        qt_server_.broadcast(MessageType::AI, event);
+    });
+
+    // 2. DeviceServer에 접속 (카메라 리스트 + AI 이벤트 수신)
     internal_client_.start("127.0.0.1", 30000);
 
     // 2. Qt 통신 서버 시작

@@ -26,6 +26,10 @@ public:
     // 새 장치 등록 시 호출되는 콜백 설정
     using DeviceCallback = std::function<void(const DeviceInfo&)>;
     void setOnDeviceRegistered(DeviceCallback cb) { on_device_registered_ = cb; }
+
+    // AI 이벤트 수신 콜백
+    using AiEventCallback = std::function<void(const std::string& device_id, const json& event)>;
+    void setOnAiEvent(AiEventCallback cb) { on_ai_event_ = cb; }
 private:
     // 1. 스레드 관리를 위한 벡터
     std::vector<std::thread> discovery_threads_;
@@ -47,13 +51,21 @@ private:
     // 새 장치 등록 콜백
     DeviceCallback on_device_registered_;
 
+    // AI 이벤트 콜백
+    AiEventCallback on_ai_event_;
+
+    // Sub-Pi 리스너 스레드들
+    std::vector<std::thread> listener_threads_;
+
     // 스레드에서 실행될 함수들
     void runBeaconReceiver();   // UDP Beacon 감지
     void runOnvifScanner();     // ONVIF 스캔
     void monitorLoop();         // 생존 여부
+    void subPiListener(std::string device_id, int socket_fd); // AI 이벤트 수신
     bool requestStartStream(const std::string& target_ip, int listen_port, int& tcp_socket); 
     std::vector<std::string> getRtspUrls(const std::string& ip);
     std::string getSingleRtspUrl(const std::string& ip);
+    bool recvExact(int fd, void* buf, size_t len);
 };
 
 #endif

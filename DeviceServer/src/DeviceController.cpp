@@ -18,6 +18,11 @@ void DeviceController::run() {
         rtsp_server_.addRelayPath(info);
     });
 
+    // 1-2. AI 이벤트 → ClientServer로 전달
+    device_mgr_.setOnAiEvent([this](const std::string& device_id, const json& event) {
+        internal_server_.broadcastAiEvent(event);
+    });
+
     // 2. 장치 탐색 시작 (UDP 비콘 + ONVIF 스캔 + 모니터링)
     device_mgr_.startDiscovery();
 

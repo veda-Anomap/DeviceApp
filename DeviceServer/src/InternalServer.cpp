@@ -167,3 +167,11 @@ bool InternalServer::recvExact(int fd, void* buf, size_t len) {
     }
     return true;
 }
+
+void InternalServer::broadcastAiEvent(const json& event) {
+    std::lock_guard<std::mutex> lock(client_mutex_);
+    for (int fd : client_fds_) {
+        sendMessage(fd, MessageType::AI, event);
+    }
+    std::cout << "[Internal] Broadcasted AI event to " << client_fds_.size() << " client(s)." << std::endl;
+}

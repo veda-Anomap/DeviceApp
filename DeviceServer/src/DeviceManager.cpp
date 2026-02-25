@@ -217,6 +217,9 @@ void DeviceManager::runBeaconReceiver() {
                         if (on_device_registered_) {
                             on_device_registered_(info);
                         }
+
+                        // AI 이벤트 리스너 스레드 생성 (Sub-Pi의 TCP 소켓에서 이벤트 대기)
+                        listener_threads_.emplace_back(&DeviceManager::subPiListener, this, id, info.command_socket_fd);
                     }
                 }
             }
@@ -474,4 +477,59 @@ DeviceManager::DeviceManager() : is_discovering_(false) {
 
 DeviceManager::~DeviceManager() {
     stopDiscovery();
+    // 리스너 스레드 정리
+    for (auto& t : listener_threads_) {
+        if (t.joinable()) t.join();
+    }
+}
+
+// ======================== Sub-Pi AI 이벤트 리스너 ========================
+
+void DeviceManager::subPiListener(std::string device_id, int socket_fd) {
+    std::cout << "[AI Listener] Started for " << device_id << " (fd: " << socket_fd << ")" << std::endl;
+
+    while (is_discovering_) {
+        // 1. 헤더 수신 (5바이트: Type + BodyLength)
+        PacketHeader header;
+        if (!recvExact(socket_fd, &header, sizeof(header))) {
+            std::cout << "[AI Listener] " << device_id << " disconnected." << std::endl;
+            break;
+        }
+
+        uint32_t body_len = ntohl(header.body_length);
+        if (body_len == 0 || body_len > 1024 * 1024) continue;
+
+        // 2. JSON 본문 수신
+        std::vector<char> buf(body_len);
+        if (!recvExact(socket_fd, buf.data(), body_len)) break;
+
+        // 3. AI 타입인 경우 콜백 호출
+        if (header.type == MessageType::AI) {
+            try {
+                json event = json::parse(std::string(buf.begin(), buf.end()));
+                event["device_id"] = device_id;  // 어느 장치에서 났는지 추가
+
+                std::cout << "[AI Listener] Event from " << device_id << ": " << event.dump() << std::endl;
+
+                if (on_ai_event_) {
+                    on_ai_event_(device_id, event);
+                }
+            } catch (const json::parse_error& e) {
+                std::cerr << "[AI Listener] JSON parse error: " << e.what() << std::endl;
+            }
+        }
+    }
+
+    std::cout << "[AI Listener] Stopped for " << device_id << std::endl;
+}
+
+bool DeviceManager::recvExact(int fd, void* buf, size_t len) {
+    size_t received = 0;
+    char* ptr = static_cast<char*>(buf);
+    while (received < len) {
+        ssize_t n = recv(fd, ptr + received, len - received, 0);
+        if (n <= 0) return false;
+        received += n;
+    }
+    return true;
 }

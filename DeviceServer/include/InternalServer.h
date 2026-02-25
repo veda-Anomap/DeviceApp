@@ -24,6 +24,9 @@ public:
     void start(int port, CameraListProvider provider);
     void stop();
 
+    // 연결된 모든 ClientServer에 AI 이벤트 전송
+    void broadcastAiEvent(const json& event);
+
 private:
     void acceptLoop();
     void clientHandler(int client_fd);
