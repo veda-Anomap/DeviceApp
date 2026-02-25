@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <cerrno>
+#include <sys/select.h>
 
 #include "DeviceManager.h"
 
@@ -130,6 +131,10 @@ void DeviceManager::monitorLoop() {
                 // 소켓 닫기
                 if (devices_[id].command_socket_fd != -1) {
                     close(devices_[id].command_socket_fd);
+                }
+                // RTSP 릴레이 정리 콜백
+                if (on_device_removed_) {
+                    on_device_removed_(id);
                 }
                 // 맵에서 삭제
                 devices_.erase(id);
@@ -488,7 +493,25 @@ DeviceManager::~DeviceManager() {
 void DeviceManager::subPiListener(std::string device_id, int socket_fd) {
     std::cout << "[AI Listener] Started for " << device_id << " (fd: " << socket_fd << ")" << std::endl;
 
+    int error_count = 0;
+
     while (is_discovering_) {
+        // select로 30초 대기 — 데이터 있으면 읽고, 없으면 루프 재시작
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(socket_fd, &read_fds);
+
+        struct timeval tv;
+        tv.tv_sec = 30;
+        tv.tv_usec = 0;
+
+        int ret = select(socket_fd + 1, &read_fds, nullptr, nullptr, &tv);
+        if (ret < 0) {
+            std::cerr << "[AI Listener] select error for " << device_id << std::endl;
+            break;
+        }
+        if (ret == 0) continue;  // 30초 동안 데이터 없음 → 정상, 루프 계속
+
         // 1. 헤더 수신 (5바이트: Type + BodyLength)
         PacketHeader header;
         if (!recvExact(socket_fd, &header, sizeof(header))) {
@@ -497,25 +520,48 @@ void DeviceManager::subPiListener(std::string device_id, int socket_fd) {
         }
 
         uint32_t body_len = ntohl(header.body_length);
-        if (body_len == 0 || body_len > 1024 * 1024) continue;
+
+        // [디버그] 헤더 로그
+        std::cout << "[AI Listener] Header: type=0x" << std::hex 
+                  << static_cast<int>(header.type) << std::dec 
+                  << " body_len=" << body_len << std::endl;
+
+        // 비정상 패킷 → 스킵
+        if (body_len == 0 || body_len > 1024 * 1024) {
+            std::cerr << "[AI Listener] Invalid body_len: " << body_len 
+                      << " from " << device_id << ". Skipping." << std::endl;
+            continue;
+        }
 
         // 2. JSON 본문 수신
         std::vector<char> buf(body_len);
         if (!recvExact(socket_fd, buf.data(), body_len)) break;
 
+        std::string body_str(buf.begin(), buf.end());
+
+        // [디버그] 본문 앞 50자 출력
+        std::cout << "[AI Listener] Body(" << body_len << "): " 
+                  << body_str.substr(0, 50) << std::endl;
+
         // 3. AI 타입인 경우 콜백 호출
         if (header.type == MessageType::AI) {
             try {
-                json event = json::parse(std::string(buf.begin(), buf.end()));
-                event["device_id"] = device_id;  // 어느 장치에서 났는지 추가
+                json event = json::parse(body_str);
+                event["device_id"] = device_id;
 
                 std::cout << "[AI Listener] Event from " << device_id << ": " << event.dump() << std::endl;
 
                 if (on_ai_event_) {
                     on_ai_event_(device_id, event);
                 }
+                error_count = 0;
             } catch (const json::parse_error& e) {
                 std::cerr << "[AI Listener] JSON parse error: " << e.what() << std::endl;
+                error_count++;
+                if (error_count >= 3) {
+                    std::cerr << "[AI Listener] Too many errors. Closing " << device_id << std::endl;
+                    break;
+                }
             }
         }
     }

@@ -21,7 +21,12 @@ void DeviceController::run() {
         rtsp_server_.addRelayPath(info);
     });
 
-    // 1-2. AI 이벤트 → ClientServer로 전달
+    // 1-2. 장치 연결 끊김 → RTSP 릴레이 제거
+    device_mgr_.setOnDeviceRemoved([this](const std::string& device_id) {
+        rtsp_server_.removeRelayPath(device_id);
+    });
+
+    // 1-3. AI 이벤트 → ClientServer로 전달
     device_mgr_.setOnAiEvent([this](const std::string& device_id, const json& event) {
         internal_server_.broadcastAiEvent(event);
     });

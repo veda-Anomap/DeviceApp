@@ -82,3 +82,11 @@ void RtspServer::addRelayPath(const DeviceInfo& info) {
 
     std::cout << "[RELAY] Active: UDP Port " << info.udp_listen_port << " -> " << path << std::endl;
 }
+
+void RtspServer::removeRelayPath(const std::string& device_id) {
+    if (!mounts_) return;
+
+    std::string path = "/" + device_id;
+    gst_rtsp_mount_points_remove_factory(mounts_, path.c_str());
+    std::cout << "[RELAY] Removed: " << path << std::endl;
+}

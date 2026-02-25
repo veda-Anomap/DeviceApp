@@ -30,6 +30,10 @@ public:
     using DeviceCallback = std::function<void(const DeviceInfo&)>;
     void setOnDeviceRegistered(DeviceCallback cb) { on_device_registered_ = cb; }
 
+    // 장치 연결 끊김 시 호출되는 콜백
+    using DeviceRemovedCallback = std::function<void(const std::string& device_id)>;
+    void setOnDeviceRemoved(DeviceRemovedCallback cb) { on_device_removed_ = cb; }
+
     // AI 이벤트 수신 콜백
     using AiEventCallback = std::function<void(const std::string& device_id, const json& event)>;
     void setOnAiEvent(AiEventCallback cb) { on_ai_event_ = cb; }
@@ -53,6 +57,9 @@ private:
 
     // 새 장치 등록 콜백
     DeviceCallback on_device_registered_;
+
+    // 장치 제거 콜백
+    DeviceRemovedCallback on_device_removed_;
 
     // AI 이벤트 콜백
     AiEventCallback on_ai_event_;
