@@ -10,6 +10,9 @@
 #include <functional>
 
 #include "Common.h"
+#include "json.hpp"
+
+using json = nlohmann::json;
 
 
 class DeviceManager {

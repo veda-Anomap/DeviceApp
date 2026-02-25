@@ -1,5 +1,8 @@
 #include <iostream>
 #include <thread>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "DeviceController.h"
 
@@ -53,22 +56,46 @@ void DeviceController::stop() {
 
 json DeviceController::buildCameraListJson() {
     auto devices = device_mgr_.getDeviceList();
+    std::string local_ip = getLocalIp();
     json camera_list = json::array();
 
     for (const auto& dev : devices) {
         json d;
         d["id"] = dev.id;
         d["ip"] = dev.ip;
-        d["type"] = (dev.type == DeviceType::SUB_PI) ? "SUB_PI" : "HANWHA";
         d["is_online"] = dev.is_online;
 
         if (dev.type == DeviceType::SUB_PI) {
-            d["udp_port"] = dev.udp_listen_port;
+            d["source_url"] = "rtsp://" + local_ip + ":8554/" + dev.id;
         } else {
             d["source_url"] = dev.source_url;
         }
+
+        d["type"] = (dev.type == DeviceType::SUB_PI) ? "SUB_PI" : "HANWHA";
         camera_list.push_back(d);
     }
 
     return camera_list;
+}
+
+std::string DeviceController::getLocalIp() {
+    struct ifaddrs *ifaddr, *ifa;
+    if (getifaddrs(&ifaddr) == -1) return "127.0.0.1";
+
+    std::string result = "127.0.0.1";
+    for (ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
+
+        char ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &((struct sockaddr_in*)ifa->ifa_addr)->sin_addr, ip, sizeof(ip));
+
+        std::string ip_str(ip);
+        // 루프백(127.0.0.1) 제외, 실제 LAN IP 선택
+        if (ip_str != "127.0.0.1") {
+            result = ip_str;
+            break;
+        }
+    }
+    freeifaddrs(ifaddr);
+    return result;
 }

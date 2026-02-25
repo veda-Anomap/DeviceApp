@@ -17,6 +17,7 @@ public:
 
 private:
     json buildCameraListJson();
+    std::string getLocalIp();
 
     DeviceManager device_mgr_;
     RtspServer rtsp_server_;
