@@ -71,11 +71,13 @@ void RtspServer::addRelayPath(const DeviceInfo& info) {
     std::string pipeline_str = 
         "( udpsrc port=" + std::to_string(info.udp_listen_port) + 
         " caps=\"application/x-rtp, payload=96\" ! "
-        "rtph264depay ! h264parse ! rtph264pay name=pay0 pt=96 )";
+        "rtph264depay ! h264parse ! rtph264pay name=pay0 pt=96 config-interval=1 )";
 
     GstRTSPMediaFactory* factory = gst_rtsp_media_factory_new();
     gst_rtsp_media_factory_set_launch(factory, pipeline_str.c_str());
     gst_rtsp_media_factory_set_shared(factory, TRUE);
+    // 💡 핵심: 클라이언트가 0명이 되어도 파이프라인을 멈추지 않음 (UDP 포트 선점 유지 -> 503 방지)
+    gst_rtsp_media_factory_set_suspend_mode(factory, GST_RTSP_SUSPEND_MODE_NONE);
 
     std::string path = "/" + info.id;
     gst_rtsp_mount_points_add_factory(mounts_, path.c_str(), factory);
