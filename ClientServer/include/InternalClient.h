@@ -6,6 +6,7 @@
 #include <atomic>
 #include <mutex>
 #include <vector>
+#include <condition_variable>
 
 #include "Common.h"
 #include "json.hpp"
@@ -49,6 +50,10 @@ private:
     // 캐시된 카메라 리스트 (스레드 안전)
     json cached_cameras_;
     std::mutex cache_mutex_;
+
+    // 종료 지연 시간(sleep_for) 방지용
+    std::condition_variable cv_;
+    std::mutex cv_mutex_;
 
     // AI 이벤트 콜백
     AiEventCallback on_ai_event_;

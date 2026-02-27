@@ -34,6 +34,9 @@ void InternalClient::stop() {
     if (!is_running_) return;
     is_running_ = false;
 
+    // 대기 중인 조건 변수 깨우기
+    cv_.notify_all();
+
     if (conn_thread_.joinable()) {
         conn_thread_.join();
     }
@@ -52,7 +55,8 @@ void InternalClient::connectionLoop() {
         int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
         if (sock_fd < 0) {
             std::cerr << "[InternalClient] Socket creation failed." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(3));
+            std::unique_lock<std::mutex> lock(cv_mutex_);
+            cv_.wait_for(lock, std::chrono::seconds(3), [this] { return !is_running_; });
             continue;
         }
 
@@ -65,7 +69,8 @@ void InternalClient::connectionLoop() {
         if (connect(sock_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
             close(sock_fd);
             std::cerr << "[InternalClient] Connection failed. Retrying in 3s..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(3));
+            std::unique_lock<std::mutex> lock(cv_mutex_);
+            cv_.wait_for(lock, std::chrono::seconds(3), [this] { return !is_running_; });
             continue;
         }
 
