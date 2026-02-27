@@ -39,3 +39,7 @@
 
 # debug information files
 *.dwo
+
+# Project Executables
+DeviceServer/device_server
+ClientServer/client_server
