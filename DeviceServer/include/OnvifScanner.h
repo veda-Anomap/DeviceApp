@@ -21,6 +21,10 @@ public:
     using DeviceFoundCallback = std::function<void(const DeviceInfo&)>;
     void setOnDeviceFound(DeviceFoundCallback cb) { on_device_found_ = cb; }
 
+    // 중복 체크 콜백 (curl 호출 전에 확인)
+    using IsRegisteredCallback = std::function<bool(const std::string& device_id)>;
+    void setIsDeviceRegistered(IsRegisteredCallback cb) { is_registered_ = cb; }
+
 private:
     void runScan();
     std::vector<std::string> getRtspUrls(const std::string& ip);
@@ -30,6 +34,7 @@ private:
     std::thread scan_thread_;
 
     DeviceFoundCallback on_device_found_;
+    IsRegisteredCallback is_registered_;
 };
 
 #endif

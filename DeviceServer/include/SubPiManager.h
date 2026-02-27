@@ -27,6 +27,10 @@ public:
     void setOnDeviceFound(DeviceFoundCallback cb) { on_device_found_ = cb; }
     void setOnAiEvent(AiEventCallback cb) { on_ai_event_ = cb; }
 
+    // 중복 체크 콜백 (TCP 연결 전에 확인)
+    using IsRegisteredCallback = std::function<bool(const std::string& device_id)>;
+    void setIsDeviceRegistered(IsRegisteredCallback cb) { is_registered_ = cb; }
+
 private:
     void runBeaconReceiver();
     bool requestStartStream(const std::string& target_ip, int listen_port, int& tcp_socket);
@@ -40,6 +44,7 @@ private:
 
     DeviceFoundCallback on_device_found_;
     AiEventCallback on_ai_event_;
+    IsRegisteredCallback is_registered_;
 };
 
 #endif

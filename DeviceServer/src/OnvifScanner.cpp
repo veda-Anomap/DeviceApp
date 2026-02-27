@@ -88,6 +88,12 @@ void OnvifScanner::runScan() {
             std::string cam_ip = inet_ntoa(cam_addr.sin_addr);
 
             if (response.find("ProbeMatch") != std::string::npos) {
+                // 이미 등록된 카메라인지 확인 (curl 호출 전에!)
+                std::string check_id = "Hanwha_" + cam_ip + "_CH_0";
+                if (is_registered_ && is_registered_(check_id)) {
+                    continue;  // 이미 등록됨 → curl 스킵
+                }
+
                 // URL 수집 (오래 걸리는 작업)
                 std::vector<std::string> urls = getRtspUrls(cam_ip);
                 if (urls.empty()) continue;

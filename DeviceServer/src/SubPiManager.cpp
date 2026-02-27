@@ -72,6 +72,12 @@ void SubPiManager::runBeaconReceiver() {
 
             if (message.find("SUB_PI_ALIVE") != std::string::npos) {
                 std::string id = "SubPi_" + sender_ip;
+
+                // 이미 등록된 장치인지 확인 (TCP 연결 전에!)
+                if (is_registered_ && is_registered_(id)) {
+                    continue;  // 이미 등록됨 → 스킵
+                }
+
                 int tcp_socket;
 
                 // TCP로 스트리밍 시작 명령 전송

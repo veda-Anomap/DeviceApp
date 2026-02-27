@@ -13,6 +13,12 @@
 DeviceManager::DeviceManager() : is_discovering_(false) {
     std::cout << "[DEBUG] DeviceManager Created." << std::endl;
 
+    // SubPiManager 중복 체크 콜백: TCP 연결 전에 확인
+    subpi_mgr_.setIsDeviceRegistered([this](const std::string& id) -> bool {
+        std::lock_guard<std::mutex> lock(device_mutex_);
+        return devices_.count(id) > 0;
+    });
+
     // SubPiManager 콜백 연결: 장치 발견 시 → 여기서 락 + 저장
     subpi_mgr_.setOnDeviceFound([this](const DeviceInfo& info, int tcp_fd) {
         std::lock_guard<std::mutex> lock(device_mutex_);
@@ -30,6 +36,12 @@ DeviceManager::DeviceManager() : is_discovering_(false) {
         if (on_ai_event_) {
             on_ai_event_(device_id, event);
         }
+    });
+
+    // OnvifScanner 중복 체크 콜백: curl 전에 확인
+    onvif_scanner_.setIsDeviceRegistered([this](const std::string& id) -> bool {
+        std::lock_guard<std::mutex> lock(device_mutex_);
+        return devices_.count(id) > 0;
     });
 
     // OnvifScanner 콜백 연결: 카메라 발견 시 → 여기서 락 + 저장
