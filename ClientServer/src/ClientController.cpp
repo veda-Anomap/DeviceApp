@@ -13,6 +13,12 @@ void ClientController::run() {
 
     is_running_ = true;
 
+    // 0. 인증 DB 초기화
+    if (!auth_manager_.init("users.db")) {
+        std::cerr << "[ClientServer] Auth DB init failed. Exiting." << std::endl;
+        return;
+    }
+
     // 1. AI 이벤트 수신 → Qt에 즉시 브로드캐스트
     internal_client_.setOnAiEvent([this](const json& event) {
         std::cout << "[ClientServer] AI event → Qt broadcast" << std::endl;
@@ -68,10 +74,52 @@ void ClientController::onQtMessage(int client_fd, MessageType type, const json& 
     switch (type) {
         case MessageType::LOGIN: {
             std::cout << "[ClientServer] LOGIN request." << std::endl;
-            qt_server_.sendMessage(client_fd, MessageType::SUCCESS, {});
 
-            json cameras = internal_client_.getCameraList();
-            qt_server_.sendMessage(client_fd, MessageType::CAMERA, cameras);
+            std::string username = body.value("id", "");
+            std::string password = body.value("pw", "");
+
+            json result = auth_manager_.loginUser(username, password);
+
+            if (result.value("success", false)) {
+                // 로그인 성공: 역할 정보 포함하여 응답 + 카메라 리스트 전송
+                qt_server_.sendMessage(client_fd, MessageType::SUCCESS, result);
+
+                json cameras = internal_client_.getCameraList();
+                qt_server_.sendMessage(client_fd, MessageType::CAMERA, cameras);
+            } else {
+                qt_server_.sendMessage(client_fd, MessageType::FAIL, result);
+            }
+            break;
+        }
+
+        case MessageType::ASSIGN: {
+            std::string action = body.value("action", "");
+
+            if (action == "register") {
+                // 회원가입
+                std::string username = body.value("id", "");
+                std::string email = body.value("email", "");
+                std::string password = body.value("pw", "");
+
+                json result = auth_manager_.registerUser(username, email, password);
+                MessageType resp = result.value("success", false) ? MessageType::SUCCESS : MessageType::FAIL;
+                qt_server_.sendMessage(client_fd, resp, result);
+
+            } else if (action == "list_pending") {
+                // 관리자: 승인 대기 목록
+                json result = auth_manager_.listPendingUsers();
+                qt_server_.sendMessage(client_fd, MessageType::ASSIGN, result);
+
+            } else if (action == "approve") {
+                // 관리자: 유저 승인
+                std::string target = body.value("target_id", "");
+                json result = auth_manager_.approveUser(target);
+                MessageType resp = result.value("success", false) ? MessageType::SUCCESS : MessageType::FAIL;
+                qt_server_.sendMessage(client_fd, resp, result);
+
+            } else {
+                qt_server_.sendMessage(client_fd, MessageType::FAIL, {{"error", "Unknown action"}});
+            }
             break;
         }
 
@@ -81,7 +129,7 @@ void ClientController::onQtMessage(int client_fd, MessageType type, const json& 
             break;
         }
 
-        case MessageType::AI: { // qt에서 ai 요청 있을 시에 사용, 없으면 지울 예정
+        case MessageType::AI: {
             std::cout << "[ClientServer] AI event: " << body.dump() << std::endl;
             qt_server_.broadcast(MessageType::AI, body);
             break;

@@ -8,6 +8,7 @@
 #include "QtCommServer.h"
 #include "InternalClient.h"
 #include "SystemMonitor.h"
+#include "AuthManager.h"
 
 class ClientController {
 public:
@@ -23,6 +24,7 @@ private:
     InternalClient internal_client_;
     QtCommServer qt_server_;
     SystemMonitor sys_monitor_;
+    AuthManager auth_manager_;
     std::atomic<bool> is_running_{false};
 
     // 메인 루프 즉시 깨우기용

@@ -1,6 +1,6 @@
 .SUFFIXES : .cpp .o
 
-OBJ = main.o ClientController.o QtCommServer.o InternalClient.o SystemMonitor.o
+OBJ = main.o ClientController.o QtCommServer.o InternalClient.o SystemMonitor.o AuthManager.o
 CXX = aarch64-linux-gnu-g++
 
 SYSROOT = $(HOME)/rpi_root
@@ -17,7 +17,7 @@ LDFLAGS += --sysroot=$(SYSROOT) \
            -L$(SYSROOT)/lib/aarch64-linux-gnu \
            -Wl,-rpath-link=$(SYSROOT)/usr/lib/aarch64-linux-gnu \
            -Wl,-rpath-link=$(SYSROOT)/lib/aarch64-linux-gnu \
-           -lpthread
+           -lpthread -lsqlite3 -lssl -lcrypto
 
 .PHONY: clean all
 
