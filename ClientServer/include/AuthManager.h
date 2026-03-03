@@ -35,6 +35,9 @@ private:
     // SHA-256(password + salt) → hex 문자열
     std::string hashPassword(const std::string& password, const std::string& salt);
 
+    // 테스트용 초기 데이터 삽입 (DB가 비어있을 때만)
+    void seedTestData();
+
     sqlite3* db_ = nullptr;
 };
 

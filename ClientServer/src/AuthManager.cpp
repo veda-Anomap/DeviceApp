@@ -49,6 +49,10 @@ bool AuthManager::init(const std::string& db_path) {
     }
 
     std::cout << "[Auth] Database initialized: " << db_path << std::endl;
+
+    // 테스트용 초기 데이터 삽입 (DB가 비어있을 때만)
+    seedTestData();
+
     return true;
 }
 
@@ -217,4 +221,53 @@ std::string AuthManager::hashPassword(const std::string& password, const std::st
         oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
     }
     return oss.str();
+}
+
+// ======================== 테스트 데이터 ========================
+
+void AuthManager::seedTestData() {
+    // DB에 유저가 이미 있으면 스킵
+    const char* count_sql = "SELECT COUNT(*) FROM users;";
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(db_, count_sql, -1, &stmt, nullptr);
+    sqlite3_step(stmt);
+    int count = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+
+    if (count > 0) return; // 이미 데이터가 있으면 삽입하지 않음
+
+    std::cout << "[Auth] Seeding test data..." << std::endl;
+
+    // role을 직접 지정해서 삽입하는 헬퍼 람다
+    auto insertUser = [this](const std::string& username, const std::string& email,
+                             const std::string& password, const std::string& role) {
+        std::string salt = generateSalt();
+        std::string hashed = hashPassword(password, salt);
+
+        const char* sql = "INSERT INTO users (username, email, password, salt, role) VALUES (?, ?, ?, ?, ?);";
+        sqlite3_stmt* s = nullptr;
+        sqlite3_prepare_v2(db_, sql, -1, &s, nullptr);
+        sqlite3_bind_text(s, 1, username.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(s, 2, email.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(s, 3, hashed.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(s, 4, salt.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(s, 5, role.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(s);
+        sqlite3_finalize(s);
+    };
+
+    // admin 계정
+    insertUser("admin_alpha", "admin_alpha@google.com", "pass_admin_alpha", "admin");
+
+    // user 계정 (승인 완료)
+    insertUser("user_alpha", "user_alpha@alpha.com", "pass_user_alpha", "user");
+    insertUser("user_beta",  "user_beta@google.com",  "pass_user_beta",  "user");
+    insertUser("user_gamma", "user_gamma@google.com", "pass_user_gamma", "user");
+
+    // pending 계정 (승인 대기)
+    insertUser("wait_alpha", "wait_alpha@google.com", "pass_wait_alpha", "pending");
+    insertUser("wait_beta",  "wait_beta@google.com",  "pass_wait_beta",  "pending");
+    insertUser("wait_gamma", "wait_gamma@google.com", "pass_wait_gamma", "pending");
+
+    std::cout << "[Auth] Test data seeded: 1 admin, 3 users, 3 pending" << std::endl;
 }
