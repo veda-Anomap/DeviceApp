@@ -47,6 +47,10 @@ private:
     std::thread conn_thread_;
     std::atomic<bool> is_running_{false};
 
+    // 현재 연결 중인 소켓 fd (stop()에서 shutdown 용)
+    int current_fd_ = -1;
+    std::mutex fd_mutex_;
+
     // 캐시된 카메라 리스트 (스레드 안전)
     json cached_cameras_;
     std::mutex cache_mutex_;

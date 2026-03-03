@@ -42,16 +42,25 @@ void ClientController::run() {
             qt_server_.broadcast(MessageType::AVAILABLE, sysinfo);
         }
 
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         tick++;
+
+        // 1초 대기 (stop() 시 즉시 깨어남)
+        std::unique_lock<std::mutex> lock(stop_mutex_);
+        stop_cv_.wait_for(lock, std::chrono::milliseconds(900), [this] { return !is_running_.load(); });
     }
 }
 
 void ClientController::stop() {
     if (!is_running_) return;
     is_running_ = false;
-    qt_server_.stop();
+
+    // 메인 루프 즉시 깨우기
+    stop_cv_.notify_all();
+
+    // InternalClient를 먼저 종료 (qt_server_.stop() 블로킹 중 재연결 방지)
     internal_client_.stop();
+    qt_server_.stop();
     std::cout << "[ClientServer] Stopped." << std::endl;
 }
 

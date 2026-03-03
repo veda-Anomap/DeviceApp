@@ -34,6 +34,14 @@ void InternalClient::stop() {
     if (!is_running_) return;
     is_running_ = false;
 
+    // 현재 연결 중인 소켓 강제 종료 → recv()/select() 즉시 탈출
+    {
+        std::lock_guard<std::mutex> lock(fd_mutex_);
+        if (current_fd_ != -1) {
+            shutdown(current_fd_, SHUT_RDWR);
+        }
+    }
+
     // 대기 중인 조건 변수 깨우기
     cv_.notify_all();
 
@@ -76,6 +84,12 @@ void InternalClient::connectionLoop() {
 
         std::cout << "[InternalClient] Connected to DeviceServer." << std::endl;
 
+        // 현재 소켓 fd 저장 (stop()에서 shutdown 가능하도록)
+        {
+            std::lock_guard<std::mutex> lock(fd_mutex_);
+            current_fd_ = sock_fd;
+        }
+
         // 2. 연결 유지: 5초마다 카메라 요청 + 그 사이 AI 이벤트 수신
         auto last_request = std::chrono::steady_clock::now();
 
@@ -104,6 +118,11 @@ void InternalClient::connectionLoop() {
             }
         }
 
+        // 소켓 fd 리셋
+        {
+            std::lock_guard<std::mutex> lock(fd_mutex_);
+            current_fd_ = -1;
+        }
         close(sock_fd);
     }
 }

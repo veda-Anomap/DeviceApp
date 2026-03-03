@@ -6,6 +6,7 @@
 #include <atomic>
 #include <functional>
 #include <vector>
+#include <map>
 #include <mutex>
 #include <set>
 
@@ -55,7 +56,7 @@ private:
 
     // 스레드 관리
     std::thread accept_thread_;
-    std::vector<std::thread> client_threads_;
+    std::map<int, std::thread> client_threads_;  // fd → thread 매핑
     std::atomic<bool> is_running_{false};
 
     // 연결된 클라이언트 fd 목록 (브로드캐스트용)

@@ -91,7 +91,7 @@ void QtCommServer::stop() {
     if (accept_thread_.joinable()) {
         accept_thread_.join();
     }
-    for (auto& t : client_threads_) {
+    for (auto& [fd, t] : client_threads_) {
         if (t.joinable()) {
             t.join();
         }
@@ -131,8 +131,8 @@ void QtCommServer::acceptLoop() {
             client_fds_.push_back(client_fd);
         }
 
-        // 클라이언트 전용 핸들러 스레드 생성
-        client_threads_.emplace_back(&QtCommServer::clientHandler, this, client_fd);
+        // 클라이언트 전용 핸들러 스레드 생성 (fd → thread 매핑)
+        client_threads_[client_fd] = std::thread(&QtCommServer::clientHandler, this, client_fd);
     }
 }
 
@@ -265,23 +265,26 @@ bool QtCommServer::recvExact(int fd, void* buf, size_t len) {
 // ======================== 스레드 정리 ========================
 
 void QtCommServer::cleanupFinishedThreads() {
-    std::lock_guard<std::mutex> lock(finished_mutex_);
+    // 1단계: 끝난 fd 목록을 복사 후 뮤텍스 해제 (데드락 방지)
+    std::set<int> fds_to_clean;
+    {
+        std::lock_guard<std::mutex> lock(finished_mutex_);
+        if (finished_fds_.empty()) return;
+        fds_to_clean.swap(finished_fds_);
+    }
+    // finished_mutex_ 해제됨 — clientHandler가 finished_fds_에 접근 가능
 
-    if (finished_fds_.empty()) return; // 정리할 게 없으면 즉시 리턴
-
-    // client_threads_ 벡터를 순회하면서
-    // finished_fds_에 있는 fd의 스레드만 join 후 제거
-    for (auto it = client_threads_.begin(); it != client_threads_.end(); ) {
-        if (it->joinable()) {
-            // 이미 끝난 스레드는 join()이 즉시 리턴됨 (블로킹 없음)
-            it->join();
-            it = client_threads_.erase(it);
-        } else {
-            ++it;
+    // 2단계: 해당 fd의 스레드만 join 후 제거
+    for (int fd : fds_to_clean) {
+        auto it = client_threads_.find(fd);
+        if (it != client_threads_.end()) {
+            if (it->second.joinable()) {
+                it->second.join();
+            }
+            client_threads_.erase(it);
         }
     }
 
-    std::cout << "[QtComm] Cleaned up " << finished_fds_.size() 
+    std::cout << "[QtComm] Cleaned up " << fds_to_clean.size()
               << " finished thread(s)." << std::endl;
-    finished_fds_.clear();
 }

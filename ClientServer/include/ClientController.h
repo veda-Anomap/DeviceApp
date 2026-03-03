@@ -2,6 +2,8 @@
 #define CLIENT_CONTROLLER_H
 
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
 
 #include "QtCommServer.h"
 #include "InternalClient.h"
@@ -22,6 +24,10 @@ private:
     QtCommServer qt_server_;
     SystemMonitor sys_monitor_;
     std::atomic<bool> is_running_{false};
+
+    // 메인 루프 즉시 깨우기용
+    std::condition_variable stop_cv_;
+    std::mutex stop_mutex_;
 };
 
 #endif
