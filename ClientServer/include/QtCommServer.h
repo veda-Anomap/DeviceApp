@@ -34,6 +34,12 @@ public:
     // 연결된 모든 클라이언트에게 브로드캐스트
     void broadcast(MessageType type, const json& body);
 
+    // role 기반 브로드캐스트 ("user" = user+admin, "admin" = admin만)
+    void broadcastToRole(MessageType type, const json& body, const std::string& min_role);
+
+    // 클라이언트 role 설정 (로그인 성공 시 호출)
+    void setClientRole(int client_fd, const std::string& role);
+
     // 현재 연결된 클라이언트 수
     int getClientCount();
 
@@ -62,6 +68,9 @@ private:
     // 연결된 클라이언트 fd 목록 (브로드캐스트용)
     std::vector<int> client_fds_;
     std::mutex client_mutex_;
+
+    // 클라이언트 역할 관리 (fd → role: "admin"/"user"/"")
+    std::map<int, std::string> client_roles_;
 
     // 끝난 클라이언트 fd 목록 (스레드 정리용)
     std::set<int> finished_fds_;

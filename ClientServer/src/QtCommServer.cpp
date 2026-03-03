@@ -196,6 +196,7 @@ void QtCommServer::clientHandler(int client_fd) {
             std::remove(client_fds_.begin(), client_fds_.end(), client_fd),
             client_fds_.end()
         );
+        client_roles_.erase(client_fd);
     }
 
     // [추가] "나 끝났어" 표시 -> acceptLoop의 cleanupFinishedThreads()가 수거함
@@ -239,6 +240,27 @@ void QtCommServer::broadcast(MessageType type, const json& body) {
     for (int fd : client_fds_) {
         sendMessage(fd, type, body);
     }
+}
+
+void QtCommServer::broadcastToRole(MessageType type, const json& body, const std::string& min_role) {
+    std::lock_guard<std::mutex> lock(client_mutex_);
+    for (int fd : client_fds_) {
+        auto it = client_roles_.find(fd);
+        if (it == client_roles_.end() || it->second.empty()) continue; // 미인증
+
+        const std::string& role = it->second;
+        if (min_role == "user" && (role == "user" || role == "admin")) {
+            sendMessage(fd, type, body);
+        } else if (min_role == "admin" && role == "admin") {
+            sendMessage(fd, type, body);
+        }
+    }
+}
+
+void QtCommServer::setClientRole(int client_fd, const std::string& role) {
+    std::lock_guard<std::mutex> lock(client_mutex_);
+    client_roles_[client_fd] = role;
+    std::cout << "[QtComm] Client fd:" << client_fd << " role set to '" << role << "'" << std::endl;
 }
 
 int QtCommServer::getClientCount() {

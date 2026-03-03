@@ -40,12 +40,12 @@ void ClientController::run() {
     while (is_running_) {
         if (tick % 5 == 0) {
             json cameras = internal_client_.getCameraList();
-            qt_server_.broadcast(MessageType::CAMERA, cameras);
+            qt_server_.broadcastToRole(MessageType::CAMERA, cameras, "user");
 
             json sysinfo = sys_monitor_.getStatus();
             sysinfo["cameras_connected"] = cameras.size();
             sysinfo["clients_connected"] = qt_server_.getClientCount();
-            qt_server_.broadcast(MessageType::AVAILABLE, sysinfo);
+            qt_server_.broadcastToRole(MessageType::AVAILABLE, sysinfo, "admin");
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -81,7 +81,10 @@ void ClientController::onQtMessage(int client_fd, MessageType type, const json& 
             json result = auth_manager_.loginUser(username, password);
 
             if (result.value("success", false)) {
-                // 로그인 성공: 역할 정보 포함하여 응답 + 카메라 리스트 전송
+                // 로그인 성공: role 태깅 + 응답 + 카메라 리스트 전송
+                std::string state = result.value("state", "user");
+                qt_server_.setClientRole(client_fd, state);
+
                 qt_server_.sendMessage(client_fd, MessageType::SUCCESS, result);
 
                 json cameras = internal_client_.getCameraList();
