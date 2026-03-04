@@ -37,6 +37,7 @@ bool AuthManager::init(const std::string& db_path) {
         "  password  TEXT    NOT NULL,"
         "  salt      TEXT    NOT NULL,"
         "  role      TEXT    DEFAULT 'pending',"
+        "  is_active INTEGER DEFAULT 1,"
         "  created   DATETIME DEFAULT CURRENT_TIMESTAMP"
         ");";
 
