@@ -150,7 +150,7 @@ void QtCommServer::clientHandler(int client_fd) {
         }
 
         // 네트워크 바이트 오더 -> 호스트 바이트 오더
-        uint32_t body_len = ntohl(header.body_length);
+        uint32_t body_len = header.body_length;
 
         // 안전 검사: 비정상적으로 큰 패킷 방지 (최대 1MB)
         if (body_len > 1024 * 1024) {
@@ -216,7 +216,7 @@ bool QtCommServer::sendMessage(int client_fd, MessageType type, const json& body
     // 헤더 구성
     PacketHeader header;
     header.type = type;
-    header.body_length = htonl(static_cast<uint32_t>(body_str.size()));
+    header.body_length = static_cast<uint32_t>(body_str.size());
 
     // 헤더 전송
     if (send(client_fd, &header, sizeof(header), MSG_NOSIGNAL) < 0) {
