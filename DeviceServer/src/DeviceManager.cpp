@@ -38,6 +38,13 @@ DeviceManager::DeviceManager() : is_discovering_(false) {
         }
     });
 
+    // SubPiManager IMAGE 이벤트 → 외부 콜백으로 전달
+    subpi_mgr_.setOnImageEvent([this](const std::string& device_id, const json& meta, const std::vector<char>& jpeg) {
+        if (on_image_event_) {
+            on_image_event_(device_id, meta, jpeg);
+        }
+    });
+
     // OnvifScanner 중복 체크 콜백: curl 전에 확인
     onvif_scanner_.setIsDeviceRegistered([this](const std::string& id) -> bool {
         std::lock_guard<std::mutex> lock(device_mutex_);

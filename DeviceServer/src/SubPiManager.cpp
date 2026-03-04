@@ -212,6 +212,40 @@ void SubPiManager::subPiListener(std::string device_id, int socket_fd) {
                 }
             }
         }
+        // 4. IMAGE 타입인 경우: JSON 메타 + JPEG 바이너리 수신
+        else if (header.type == MessageType::IMAGE) {
+            try {
+                json meta = json::parse(body_str);
+                meta["device_id"] = device_id;
+
+                uint32_t jpeg_size = meta.value("jpeg_size", 0u);
+                if (jpeg_size == 0 || jpeg_size > 10 * 1024 * 1024) { // 최대 10MB
+                    std::cerr << "[AI Listener] Invalid jpeg_size: " << jpeg_size << std::endl;
+                    continue;
+                }
+
+                // JPEG 바이너리 수신
+                std::vector<char> jpeg_buf(jpeg_size);
+                if (!recvExact(socket_fd, jpeg_buf.data(), jpeg_size)) {
+                    std::cerr << "[AI Listener] Failed to receive JPEG from " << device_id << std::endl;
+                    break;
+                }
+
+                std::cout << "[AI Listener] IMAGE from " << device_id 
+                          << ": frame " << meta.value("frame_index", -1) 
+                          << "/" << meta.value("total_frames", -1)
+                          << " (" << jpeg_size << " bytes)" << std::endl;
+
+                if (on_image_event_) {
+                    on_image_event_(device_id, meta, jpeg_buf);
+                }
+                error_count = 0;
+            } catch (const json::parse_error& e) {
+                std::cerr << "[AI Listener] IMAGE JSON parse error: " << e.what() << std::endl;
+                error_count++;
+                if (error_count >= 3) break;
+            }
+        }
     }
 
     std::cout << "[AI Listener] Stopped for " << device_id << std::endl;

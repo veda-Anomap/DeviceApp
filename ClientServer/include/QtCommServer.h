@@ -37,6 +37,12 @@ public:
     // role 기반 브로드캐스트 ("user" = user+admin, "admin" = admin만)
     void broadcastToRole(MessageType type, const json& body, const std::string& min_role);
 
+    // IMAGE 전송 (PacketHeader + JSON 메타 + JPEG 바이너리)
+    bool sendImageMessage(int client_fd, const json& meta, const std::vector<char>& jpeg);
+
+    // 전체 클라이언트에 IMAGE 브로드캐스트
+    void broadcastImage(const json& meta, const std::vector<char>& jpeg);
+
     // 클라이언트 role 설정 (로그인 성공 시 호출)
     void setClientRole(int client_fd, const std::string& role);
 

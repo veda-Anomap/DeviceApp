@@ -31,6 +31,11 @@ void DeviceController::run() {
         internal_server_.broadcastAiEvent(event);
     });
 
+    // 1-4. IMAGE 이벤트 → ClientServer로 전달
+    device_mgr_.setOnImageEvent([this](const std::string& device_id, const json& meta, const std::vector<char>& jpeg) {
+        internal_server_.broadcastImageEvent(meta, jpeg);
+    });
+
     // 2. 장치 탐색 시작 (UDP 비콘 + ONVIF 스캔 + 모니터링)
     device_mgr_.startDiscovery();
 

@@ -37,6 +37,9 @@ public:
     using AiEventCallback = std::function<void(const std::string& device_id, const json& event)>;
     void setOnAiEvent(AiEventCallback cb) { on_ai_event_ = cb; }
 
+    using ImageEventCallback = std::function<void(const std::string& device_id, const json& meta, const std::vector<char>& jpeg)>;
+    void setOnImageEvent(ImageEventCallback cb) { on_image_event_ = cb; }
+
 private:
     void monitorLoop();
 
@@ -56,6 +59,7 @@ private:
     DeviceCallback on_device_registered_;
     DeviceRemovedCallback on_device_removed_;
     AiEventCallback on_ai_event_;
+    ImageEventCallback on_image_event_;
 };
 
 #endif

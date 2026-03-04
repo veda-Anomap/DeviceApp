@@ -27,11 +27,15 @@ public:
     // 연결된 모든 ClientServer에 AI 이벤트 전송
     void broadcastAiEvent(const json& event);
 
+    // 연결된 모든 ClientServer에 IMAGE 이벤트 전송 (JSON 메타 + JPEG 바이너리)
+    void broadcastImageEvent(const json& meta, const std::vector<char>& jpeg);
+
 private:
     void acceptLoop();
     void clientHandler(int client_fd);
     bool recvExact(int fd, void* buf, size_t len);
     bool sendMessage(int client_fd, MessageType type, const json& body);
+    bool sendImageMessage(int client_fd, const json& meta, const std::vector<char>& jpeg);
 
     int server_fd_ = -1;
     int port_ = 30000;

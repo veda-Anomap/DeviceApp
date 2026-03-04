@@ -29,6 +29,10 @@ public:
     using AiEventCallback = std::function<void(const json& event)>;
     void setOnAiEvent(AiEventCallback cb) { on_ai_event_ = cb; }
 
+    // IMAGE 이벤트 수신 콜백 설정
+    using ImageEventCallback = std::function<void(const json& meta, const std::vector<char>& jpeg)>;
+    void setOnImageEvent(ImageEventCallback cb) { on_image_event_ = cb; }
+
 private:
     // DeviceServer에 접속 시도 (재연결 포함)
     void connectionLoop();
@@ -61,6 +65,9 @@ private:
 
     // AI 이벤트 콜백
     AiEventCallback on_ai_event_;
+
+    // IMAGE 이벤트 콜백
+    ImageEventCallback on_image_event_;
 };
 
 #endif

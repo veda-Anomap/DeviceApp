@@ -25,6 +25,12 @@ void ClientController::run() {
         qt_server_.broadcast(MessageType::AI, event);
     });
 
+    // 1-2. IMAGE 이벤트 수신 → Qt에 즉시 브로드캐스트
+    internal_client_.setOnImageEvent([this](const json& meta, const std::vector<char>& jpeg) {
+        std::cout << "[ClientServer] IMAGE event → Qt broadcast (" << jpeg.size() << " bytes)" << std::endl;
+        qt_server_.broadcastImage(meta, jpeg);
+    });
+
     // 2. DeviceServer에 접속 (카메라 리스트 + AI 이벤트 수신)
     internal_client_.start("127.0.0.1", 30000);
 

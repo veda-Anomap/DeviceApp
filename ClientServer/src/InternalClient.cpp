@@ -159,6 +159,25 @@ bool InternalClient::handleIncoming(int sock_fd) {
                 on_ai_event_(body);
             }
         }
+        else if (header.type == MessageType::IMAGE) {
+            uint32_t jpeg_size = body.value("jpeg_size", 0u);
+            if (jpeg_size == 0 || jpeg_size > 10 * 1024 * 1024) {
+                std::cerr << "[InternalClient] Invalid jpeg_size: " << jpeg_size << std::endl;
+                return true;
+            }
+
+            // JPEG 바이너리 수신
+            std::vector<char> jpeg_buf(jpeg_size);
+            if (!recvExact(sock_fd, jpeg_buf.data(), jpeg_size)) return false;
+
+            std::cout << "[InternalClient] IMAGE received: frame " 
+                      << body.value("frame_index", -1) << "/" << body.value("total_frames", -1)
+                      << " (" << jpeg_size << " bytes)" << std::endl;
+
+            if (on_image_event_) {
+                on_image_event_(body, jpeg_buf);
+            }
+        }
     } catch (...) {
         std::cerr << "[InternalClient] JSON parse error." << std::endl;
     }

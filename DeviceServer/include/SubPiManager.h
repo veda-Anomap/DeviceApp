@@ -24,8 +24,10 @@ public:
     // 콜백 설정 (DeviceManager가 호출)
     using DeviceFoundCallback = std::function<void(const DeviceInfo&, int tcp_fd)>;
     using AiEventCallback = std::function<void(const std::string& device_id, const json& event)>;
+    using ImageEventCallback = std::function<void(const std::string& device_id, const json& meta, const std::vector<char>& jpeg)>;
     void setOnDeviceFound(DeviceFoundCallback cb) { on_device_found_ = cb; }
     void setOnAiEvent(AiEventCallback cb) { on_ai_event_ = cb; }
+    void setOnImageEvent(ImageEventCallback cb) { on_image_event_ = cb; }
 
     // 중복 체크 콜백 (TCP 연결 전에 확인)
     using IsRegisteredCallback = std::function<bool(const std::string& device_id)>;
@@ -44,6 +46,7 @@ private:
 
     DeviceFoundCallback on_device_found_;
     AiEventCallback on_ai_event_;
+    ImageEventCallback on_image_event_;
     IsRegisteredCallback is_registered_;
 };
 

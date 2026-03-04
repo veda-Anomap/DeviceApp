@@ -175,3 +175,31 @@ void InternalServer::broadcastAiEvent(const json& event) {
     }
     std::cout << "[Internal] Broadcasted AI event to " << client_fds_.size() << " client(s)." << std::endl;
 }
+
+void InternalServer::broadcastImageEvent(const json& meta, const std::vector<char>& jpeg) {
+    std::lock_guard<std::mutex> lock(client_mutex_);
+    for (int fd : client_fds_) {
+        sendImageMessage(fd, meta, jpeg);
+    }
+    std::cout << "[Internal] Broadcasted IMAGE event to " << client_fds_.size() << " client(s)." << std::endl;
+}
+
+bool InternalServer::sendImageMessage(int client_fd, const json& meta, const std::vector<char>& jpeg) {
+    std::string meta_str = meta.dump();
+
+    // 헤더: Type=IMAGE, BodyLength=JSON 길이
+    PacketHeader header;
+    header.type = MessageType::IMAGE;
+    header.body_length = htonl(static_cast<uint32_t>(meta_str.size()));
+
+    // 1. 헤더 전송
+    if (send(client_fd, &header, sizeof(header), MSG_NOSIGNAL) < 0) return false;
+    // 2. JSON 메타데이터 전송
+    if (send(client_fd, meta_str.c_str(), meta_str.size(), MSG_NOSIGNAL) < 0) return false;
+    // 3. JPEG 바이너리 전송
+    if (!jpeg.empty()) {
+        if (send(client_fd, jpeg.data(), jpeg.size(), MSG_NOSIGNAL) < 0) return false;
+    }
+
+    return true;
+}

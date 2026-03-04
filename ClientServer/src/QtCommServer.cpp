@@ -310,3 +310,35 @@ void QtCommServer::cleanupFinishedThreads() {
     std::cout << "[QtComm] Cleaned up " << fds_to_clean.size()
               << " finished thread(s)." << std::endl;
 }
+
+// ======================== IMAGE 전송 ========================
+
+bool QtCommServer::sendImageMessage(int client_fd, const json& meta, const std::vector<char>& jpeg) {
+    std::string meta_str = meta.dump();
+
+    // 헤더: Type=IMAGE, BodyLength=JSON 길이 (리틀 엔디안)
+    PacketHeader header;
+    header.type = MessageType::IMAGE;
+    header.body_length = static_cast<uint32_t>(meta_str.size());
+
+    // 1. 헤더 전송
+    if (send(client_fd, &header, sizeof(header), MSG_NOSIGNAL) < 0) return false;
+    // 2. JSON 메타데이터 전송
+    if (send(client_fd, meta_str.c_str(), meta_str.size(), MSG_NOSIGNAL) < 0) return false;
+    // 3. JPEG 바이너리 전송
+    if (!jpeg.empty()) {
+        if (send(client_fd, jpeg.data(), jpeg.size(), MSG_NOSIGNAL) < 0) return false;
+    }
+
+    return true;
+}
+
+void QtCommServer::broadcastImage(const json& meta, const std::vector<char>& jpeg) {
+    std::lock_guard<std::mutex> lock(client_mutex_);
+    for (int fd : client_fds_) {
+        // role이 설정된 (로그인된) 클라이언트에게만 전송
+        if (!client_roles_[fd].empty()) {
+            sendImageMessage(fd, meta, jpeg);
+        }
+    }
+}
