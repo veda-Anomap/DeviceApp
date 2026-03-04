@@ -43,8 +43,6 @@ void ClientController::run() {
             qt_server_.broadcastToRole(MessageType::CAMERA, cameras, "user");
 
             json sysinfo = sys_monitor_.getStatus();
-            sysinfo["cameras_connected"] = cameras.size();
-            sysinfo["clients_connected"] = qt_server_.getClientCount();
             qt_server_.broadcastToRole(MessageType::AVAILABLE, sysinfo, "admin");
         }
 

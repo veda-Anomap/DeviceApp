@@ -67,6 +67,7 @@ json DeviceController::buildCameraListJson() {
     for (const auto& dev : devices) {
         json d;
         d["is_online"] = dev.is_online;
+        d["ip"] = dev.ip;
 
         if (dev.type == DeviceType::SUB_PI) {
             d["source_url"] = "rtsp://" + local_ip + ":8554/" + dev.id;
