@@ -2,6 +2,7 @@
 #define AUTH_MANAGER_H
 
 #include <string>
+#include <mutex>
 #include <sqlite3.h>
 
 #include "json.hpp"
@@ -39,6 +40,7 @@ private:
     void seedTestData();
 
     sqlite3* db_ = nullptr;
+    std::mutex db_mutex_;  // 멀티스레드 DB 접근 보호
 };
 
 #endif // AUTH_MANAGER_H

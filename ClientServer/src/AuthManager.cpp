@@ -65,6 +65,8 @@ json AuthManager::registerUser(const std::string& username, const std::string& e
         return {{"success", false}, {"error", "모든 필드를 입력해주세요."}};
     }
 
+    std::lock_guard<std::mutex> lock(db_mutex_);
+
     // salt 생성 + 비밀번호 해싱
     std::string salt = generateSalt();
     std::string hashed = hashPassword(password, salt);
@@ -106,6 +108,8 @@ json AuthManager::loginUser(const std::string& username, const std::string& pass
         return {{"success", false}, {"error", "아이디와 비밀번호를 입력해주세요."}};
     }
 
+    std::lock_guard<std::mutex> lock(db_mutex_);
+
     // DB에서 유저 조회
     const char* sql = "SELECT password, salt, role FROM users WHERE username = ?;";
     sqlite3_stmt* stmt = nullptr;
@@ -146,6 +150,8 @@ json AuthManager::loginUser(const std::string& username, const std::string& pass
 // ======================== 관리자 기능 ========================
 
 json AuthManager::listPendingUsers() {
+    std::lock_guard<std::mutex> lock(db_mutex_);
+
     const char* sql = "SELECT username, email, created FROM users WHERE role = 'pending';";
     sqlite3_stmt* stmt = nullptr;
 
@@ -168,6 +174,8 @@ json AuthManager::listPendingUsers() {
 }
 
 json AuthManager::approveUser(const std::string& username) {
+    std::lock_guard<std::mutex> lock(db_mutex_);
+
     const char* sql = "UPDATE users SET role = 'user' WHERE username = ? AND role = 'pending';";
     sqlite3_stmt* stmt = nullptr;
 
