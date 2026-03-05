@@ -111,18 +111,21 @@ void InternalClient::connectionLoop() {
                     break;
                 }
 
+                // 카메라 캐시 즉시 갱신 (status 실패와 무관하게)
+                {
+                    std::lock_guard<std::mutex> lock(cache_mutex_);
+                    cached_cameras_ = result;
+                }
+
                 json status = requestDeviceStatus(sock_fd);
-                // status가 null이어도 카메라 리스트는 성공했으몀로 계속 진행
-                if (status.is_null()) {
+                if (!status.is_null()) {
+                    std::lock_guard<std::mutex> lock(cache_mutex_);
+                    cached_device_status_ = status;
+                } else {
                     std::cout << "[InternalClient] DeviceServer disconnected (status). Reconnecting..." << std::endl;
                     break;
                 }
 
-                {
-                    std::lock_guard<std::mutex> lock(cache_mutex_);
-                    cached_cameras_ = result;
-                    cached_device_status_ = status;
-                }
                 last_request = std::chrono::steady_clock::now();
             }
 
