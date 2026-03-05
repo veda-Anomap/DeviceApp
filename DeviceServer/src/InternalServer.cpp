@@ -14,11 +14,12 @@ InternalServer::~InternalServer() {
     stop();
 }
 
-void InternalServer::start(int port, CameraListProvider provider) {
+void InternalServer::start(int port, CameraListProvider camera_provider, DeviceStatusProvider status_provider) {
     if (is_running_) return;
 
     port_ = port;
-    get_camera_list_ = provider;
+    get_camera_list_ = camera_provider;
+    get_device_status_ = status_provider;
 
     server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd_ < 0) {
@@ -131,6 +132,12 @@ void InternalServer::clientHandler(int client_fd) {
             json camera_list = get_camera_list_();
             sendMessage(client_fd, MessageType::CAMERA, camera_list);
             std::cout << "[Internal] Sent camera list to StreamServer." << std::endl;
+        }
+        // AVAILABLE 요청 처리 (디바이스 상태)
+        else if (header.type == MessageType::AVAILABLE) {
+            json device_status = get_device_status_();
+            sendMessage(client_fd, MessageType::AVAILABLE, device_status);
+            std::cout << "[Internal] Sent device status to StreamServer." << std::endl;
         }
     }
 

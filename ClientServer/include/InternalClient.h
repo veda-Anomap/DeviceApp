@@ -25,6 +25,9 @@ public:
     // 현재 캐시된 카메라 리스트 가져오기
     json getCameraList();
 
+    // 현재 캐시된 디바이스 상태 가져오기
+    json getDeviceStatus();
+
     // AI 이벤트 수신 콜백 설정
     using AiEventCallback = std::function<void(const json& event)>;
     void setOnAiEvent(AiEventCallback cb) { on_ai_event_ = cb; }
@@ -43,6 +46,9 @@ private:
     // DeviceServer에서 오는 패킷 수신 (카메라 응답 + AI 이벤트)
     bool handleIncoming(int sock_fd);
 
+    // DeviceServer에 AVAILABLE 요청 보내고 응답 받기
+    json requestDeviceStatus(int sock_fd);
+
     bool recvExact(int fd, void* buf, size_t len);
     bool sendMessage(int fd, MessageType type, const json& body);
 
@@ -57,6 +63,7 @@ private:
 
     // 캐시된 카메라 리스트 (스레드 안전)
     json cached_cameras_;
+    json cached_device_status_;  // 디바이스 상태 캐시
     std::mutex cache_mutex_;
 
     // 종료 지연 시간(sleep_for) 방지용

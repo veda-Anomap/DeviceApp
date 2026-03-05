@@ -246,6 +246,26 @@ void SubPiManager::subPiListener(std::string device_id, int socket_fd) {
                 if (error_count >= 3) break;
             }
         }
+        // 5. AVAILABLE 타입인 경우: SubCam 시스템 상태 수신
+        else if (header.type == MessageType::AVAILABLE) {
+            try {
+                json status = json::parse(body_str);
+
+                std::cout << "[AI Listener] AVAILABLE from " << device_id 
+                          << ": cpu=" << status.value("cpu", 0.0)
+                          << " mem=" << status.value("memory", 0.0)
+                          << " temp=" << status.value("temp", 0.0) << std::endl;
+
+                if (on_available_event_) {
+                    on_available_event_(device_id, status);
+                }
+                error_count = 0;
+            } catch (const json::parse_error& e) {
+                std::cerr << "[AI Listener] AVAILABLE JSON parse error: " << e.what() << std::endl;
+                error_count++;
+                if (error_count >= 3) break;
+            }
+        }
     }
 
     std::cout << "[AI Listener] Stopped for " << device_id << std::endl;

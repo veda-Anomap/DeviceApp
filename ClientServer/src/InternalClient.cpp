@@ -11,6 +11,7 @@
 
 InternalClient::InternalClient() {
     cached_cameras_ = json::array();
+    cached_device_status_ = json::array();
 }
 
 InternalClient::~InternalClient() {
@@ -55,6 +56,11 @@ void InternalClient::stop() {
 json InternalClient::getCameraList() {
     std::lock_guard<std::mutex> lock(cache_mutex_);
     return cached_cameras_;
+}
+
+json InternalClient::getDeviceStatus() {
+    std::lock_guard<std::mutex> lock(cache_mutex_);
+    return cached_device_status_;
 }
 
 void InternalClient::connectionLoop() {
@@ -104,9 +110,18 @@ void InternalClient::connectionLoop() {
                     std::cout << "[InternalClient] DeviceServer disconnected. Reconnecting..." << std::endl;
                     break;
                 }
+
+                json status = requestDeviceStatus(sock_fd);
+                // status가 null이어도 카메라 리스트는 성공했으몀로 계속 진행
+                if (status.is_null()) {
+                    std::cout << "[InternalClient] DeviceServer disconnected (status). Reconnecting..." << std::endl;
+                    break;
+                }
+
                 {
                     std::lock_guard<std::mutex> lock(cache_mutex_);
                     cached_cameras_ = result;
+                    cached_device_status_ = status;
                 }
                 last_request = std::chrono::steady_clock::now();
             }
@@ -188,6 +203,35 @@ bool InternalClient::handleIncoming(int sock_fd) {
 json InternalClient::requestCameraList(int sock_fd) {
     // CAMERA 요청 전송 (빈 body)
     if (!sendMessage(sock_fd, MessageType::CAMERA, {})) {
+        return nullptr;
+    }
+
+    // 응답 수신
+    PacketHeader header;
+    if (!recvExact(sock_fd, &header, sizeof(header))) {
+        return nullptr;
+    }
+
+    uint32_t body_len = ntohl(header.body_length);
+    if (body_len == 0 || body_len > 1024 * 1024) {
+        return nullptr;
+    }
+
+    std::vector<char> buf(body_len);
+    if (!recvExact(sock_fd, buf.data(), body_len)) {
+        return nullptr;
+    }
+
+    try {
+        return json::parse(std::string(buf.begin(), buf.end()));
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+json InternalClient::requestDeviceStatus(int sock_fd) {
+    // AVAILABLE 요청 전송 (빈 body)
+    if (!sendMessage(sock_fd, MessageType::AVAILABLE, {})) {
         return nullptr;
     }
 

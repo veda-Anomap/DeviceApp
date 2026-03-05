@@ -45,6 +45,12 @@ DeviceManager::DeviceManager() : is_discovering_(false) {
         }
     });
 
+    // SubPiManager AVAILABLE 이벤트 → 캐시 갱신
+    subpi_mgr_.setOnAvailableEvent([this](const std::string& device_id, const json& status) {
+        std::lock_guard<std::mutex> lock(device_mutex_);
+        device_status_[device_id] = status;
+    });
+
     // OnvifScanner 중복 체크 콜백: curl 전에 확인
     onvif_scanner_.setIsDeviceRegistered([this](const std::string& id) -> bool {
         std::lock_guard<std::mutex> lock(device_mutex_);
@@ -100,6 +106,21 @@ std::vector<DeviceInfo> DeviceManager::getDeviceList() {
         list.push_back(pair.second);
     }
     return list;
+}
+
+json DeviceManager::getDeviceStatusList() {
+    std::lock_guard<std::mutex> lock(device_mutex_);
+    json result = json::array();
+    for (const auto& pair : device_status_) {
+        json entry = pair.second;  // {"cpu":..., "memory":..., "temp":..., "uptime":...}
+        // devices_ 맵에서 IP 조회하여 추가
+        auto it = devices_.find(pair.first);
+        if (it != devices_.end()) {
+            entry["ip"] = it->second.ip;
+        }
+        result.push_back(entry);
+    }
+    return result;
 }
 
 // ======================== 모니터링 루프 ========================
@@ -167,6 +188,7 @@ void DeviceManager::monitorLoop() {
                     on_device_removed_(id);
                 }
                 devices_.erase(id);
+                device_status_.erase(id);
             }
             std::cout << "[DeviceManager] Cleanup Complete. Remaining devices: " << devices_.size() << std::endl;
         }

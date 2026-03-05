@@ -26,6 +26,7 @@ public:
     void stopDiscovery();
 
     std::vector<DeviceInfo> getDeviceList();
+    json getDeviceStatusList();
 
     // 외부 콜백 (DeviceController가 설정)
     using DeviceCallback = std::function<void(const DeviceInfo&)>;
@@ -49,6 +50,7 @@ private:
 
     // 장치 데이터 (유일한 소유자!)
     std::map<std::string, DeviceInfo> devices_;
+    std::map<std::string, json> device_status_;  // SubCam 시스템 상태 캐시
     std::mutex device_mutex_;
 
     // 스레드 제어

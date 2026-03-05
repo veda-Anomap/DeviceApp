@@ -43,9 +43,10 @@ void DeviceController::run() {
     rtsp_server_.start();
 
     // 3. 내부 TCP 서버 시작 (ClientServer의 접속을 받음)
-    internal_server_.start(30000, [this]() -> json {
-        return buildCameraListJson();
-    });
+    internal_server_.start(30000,
+        [this]() -> json { return buildCameraListJson(); },
+        [this]() -> json { return device_mgr_.getDeviceStatusList(); }
+    );
 
     std::cout << "[DeviceServer] Running. Press Ctrl+C to stop." << std::endl;
 
