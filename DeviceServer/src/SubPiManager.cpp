@@ -73,9 +73,9 @@ void SubPiManager::runBeaconReceiver() {
             if (message.find("SUB_PI_ALIVE") != std::string::npos) {
                 std::string id = "SubPi_" + sender_ip;
 
-                // 이미 등록된 장치인지 확인 (TCP 연결 전에!)
+                // 이미 등록된 + 온라인인 장치인지 확인
                 if (is_registered_ && is_registered_(id)) {
-                    continue;  // 이미 등록됨 → 스킵
+                    continue;  // 이미 온라인 → 스킵
                 }
 
                 int tcp_socket;
@@ -90,7 +90,7 @@ void SubPiManager::runBeaconReceiver() {
                     info.command_socket_fd = tcp_socket;
                     info.is_online = true;
 
-                    // 콜백으로 DeviceManager에 알림 (중복 체크는 DeviceManager가 함)
+                    // 콜백으로 DeviceManager에 알림 (신규 등록 또는 오프라인 복구)
                     if (on_device_found_) {
                         on_device_found_(info, tcp_socket);
                     }

@@ -43,6 +43,7 @@ public:
 
 private:
     void monitorLoop();
+    bool checkTcpPort(const std::string& ip, int port, int timeout_sec = 2);
 
     // 하위 매니저 (콜백으로만 통신)
     SubPiManager subpi_mgr_;
