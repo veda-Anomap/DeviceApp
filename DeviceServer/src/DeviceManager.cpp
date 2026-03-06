@@ -159,6 +159,7 @@ void DeviceManager::monitorLoop() {
         if (!is_discovering_) break;
 
         std::vector<std::string> went_offline;
+        std::map<std::string, bool> ip_check_cache;  // 한화 IP별 체크 결과 캐시
 
         {
             std::lock_guard<std::mutex> lock(device_mutex_);
@@ -200,9 +201,12 @@ void DeviceManager::monitorLoop() {
                         went_offline.push_back(device_id);
                     }
                 }
-                // Hanwha: TCP 554 포트 체크
+                // Hanwha: TCP 554 포트 체크 (같은 IP는 1번만)
                 else if (info.type == DeviceType::HANWHA) {
-                    if (!checkTcpPort(info.ip, 554)) {
+                    if (ip_check_cache.find(info.ip) == ip_check_cache.end()) {
+                        ip_check_cache[info.ip] = checkTcpPort(info.ip, 554);
+                    }
+                    if (!ip_check_cache[info.ip]) {
                         std::cout << "[Monitor] Hanwha offline (TCP 554 failed): " << device_id << std::endl;
                         went_offline.push_back(device_id);
                     }
