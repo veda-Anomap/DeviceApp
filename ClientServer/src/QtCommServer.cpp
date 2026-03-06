@@ -257,6 +257,20 @@ void QtCommServer::broadcastToRole(MessageType type, const json& body, const std
     }
 }
 
+void QtCommServer::broadcastByRole(MessageType type, const json& user_body, const json& admin_body) {
+    std::lock_guard<std::mutex> lock(client_mutex_);
+    for (int fd : client_fds_) {
+        auto it = client_roles_.find(fd);
+        if (it == client_roles_.end() || it->second.empty()) continue;
+
+        if (it->second == "admin") {
+            sendMessage(fd, type, admin_body);
+        } else if (it->second == "user") {
+            sendMessage(fd, type, user_body);
+        }
+    }
+}
+
 void QtCommServer::setClientRole(int client_fd, const std::string& role) {
     std::lock_guard<std::mutex> lock(client_mutex_);
     client_roles_[client_fd] = role;

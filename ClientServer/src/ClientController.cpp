@@ -48,11 +48,17 @@ void ClientController::run() {
             json cameras = internal_client_.getCameraList();
             qt_server_.broadcastToRole(MessageType::CAMERA, cameras, "user");
 
-            // AVAILABLE: 서버 상태 + 디바이스 상태를 합쳐서 전송
-            json available;
-            available["server"] = sys_monitor_.getStatus();
-            available["devices"] = internal_client_.getDeviceStatus();
-            qt_server_.broadcastToRole(MessageType::AVAILABLE, available, "admin");
+            // AVAILABLE: user는 디바이스 상태만, admin은 서버+디바이스
+            json device_status = internal_client_.getDeviceStatus();
+
+            json user_avail;
+            user_avail["devices"] = device_status;
+
+            json admin_avail;
+            admin_avail["server"] = sys_monitor_.getStatus();
+            admin_avail["devices"] = device_status;
+
+            qt_server_.broadcastByRole(MessageType::AVAILABLE, user_avail, admin_avail);
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
