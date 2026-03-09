@@ -1,4 +1,6 @@
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -59,6 +61,16 @@ void OnvifScanner::runScan() {
     tv.tv_usec = 0;
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
+    // 2-1. 멀티캐스트 그룹 가입 (IGMP Snooping 환경 대응)
+    // 기업용 스위치에서 IGMP Snooping이 활성화된 경우,
+    // 명시적으로 가입하지 않으면 멀티캐스트 응답을 수신할 수 없음
+    struct ip_mreq mreq;
+    mreq.imr_multiaddr.s_addr = inet_addr("239.255.255.250");
+    mreq.imr_interface.s_addr = INADDR_ANY;
+    if (setsockopt(sockfd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
+        std::cerr << "ONVIF: Failed to join multicast group (IGMP)" << std::endl;
+    }
+
     // 3. 멀티캐스트 목적지 설정 (239.255.255.250:3702)
     memset(&multi_addr, 0, sizeof(multi_addr));
     multi_addr.sin_family = AF_INET;
@@ -88,6 +100,8 @@ void OnvifScanner::runScan() {
             std::string cam_ip = inet_ntoa(cam_addr.sin_addr);
 
             if (response.find("ProbeMatch") != std::string::npos) {
+                std::cout << "[ONVIF] ProbeMatch from: " << cam_ip << std::endl;
+
                 // 이미 등록된 카메라인지 확인 (curl 호출 전에!)
                 std::string check_id = "Hanwha_" + cam_ip + "_CH_0";
                 if (is_registered_ && is_registered_(check_id)) {
@@ -95,6 +109,7 @@ void OnvifScanner::runScan() {
                 }
 
                 // URL 수집 (오래 걸리는 작업)
+                std::cout << "[ONVIF] Trying SUNAPI for: " << cam_ip << std::endl;
                 std::vector<std::string> urls = getRtspUrls(cam_ip);
                 if (urls.empty()) continue;
 
@@ -117,7 +132,10 @@ void OnvifScanner::runScan() {
             }
         }
 
-        // 6. 다음 스캔까지 30초 휴식
+        // 6. ARP 폴백 스캔 (멀티캐스트로 못 찾은 한화 카메라 보완)
+        arpFallbackScan();
+
+        // 7. 다음 스캔까지 30초 휴식
         for(int i=0; i<30; ++i) {
             if(!(*is_running_)) break;
             std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -155,7 +173,7 @@ std::vector<std::string> OnvifScanner::getRtspUrls(const std::string& ip) {
 
         if (result.empty() || result.find("Error") != std::string::npos) {
             if (ch == 0) {
-                std::cout << "[SmartCheck] Multi-channel failed. Trying single mode..." << std::endl;
+                std::cout << "[SmartCheck] Multi-channel failed for " << ip << ". Trying single mode..." << std::endl;
                 std::string fallback_url = getSingleRtspUrl(ip);
                 if (!fallback_url.empty()) {
                     urls.push_back(fallback_url);
@@ -197,13 +215,79 @@ std::string OnvifScanner::getSingleRtspUrl(const std::string& ip) {
         result.pop_back();
     }
 
-    if (result.empty() || result.find("Error") != std::string::npos) {   
+    if (result.empty() || result.find("Error") != std::string::npos) {
+        std::cout << "[SmartCheck] Single mode also failed for " << ip << std::endl;
         return "";
     }
 
     size_t slash_pos = result.find("//");
     if (slash_pos != std::string::npos) {
         result.insert(slash_pos + 2, "admin:5hanwha!@");
+    }
+
+    return result;
+}
+
+// ======================== ARP 폴백 스캔 ========================
+
+void OnvifScanner::arpFallbackScan() {
+    // 1. 브로드캐스트 ping으로 ARP 테이블 갱신 (패킷 1개, 부하 최소)
+    system("ping -b -c 1 -w 1 192.168.0.255 > /dev/null 2>&1");
+
+    // 2. ARP 테이블에서 한화 MAC 주소 필터링
+    std::vector<std::string> hanwha_ips = getHanwhaIpsFromArp();
+
+    for (const auto& ip : hanwha_ips) {
+        if (!(*is_running_)) break;
+
+        // 이미 등록된 카메라는 스킵
+        std::string check_id = "Hanwha_" + ip + "_CH_0";
+        if (is_registered_ && is_registered_(check_id)) {
+            continue;
+        }
+
+        // SUNAPI로 RTSP URL 획득 시도
+        std::cout << "[ARP Scan] Trying SUNAPI for: " << ip << std::endl;
+        std::vector<std::string> urls = getRtspUrls(ip);
+        if (urls.empty()) continue;
+
+        // 각 채널을 콜백으로 DeviceManager에 알림
+        for (int i = 0; i < (int)urls.size(); i++) {
+            std::string id = "Hanwha_" + ip + "_CH_" + std::to_string(i);
+
+            DeviceInfo info;
+            info.id = id;
+            info.ip = ip;
+            info.type = DeviceType::HANWHA;
+            info.source_url = urls[i];
+            info.is_online = true;
+            info.command_socket_fd = -1;
+
+            if (on_device_found_) {
+                on_device_found_(info);
+            }
+        }
+    }
+}
+
+std::vector<std::string> OnvifScanner::getHanwhaIpsFromArp() {
+    std::vector<std::string> result;
+    std::ifstream arp_file("/proc/net/arp");
+    if (!arp_file.is_open()) return result;
+
+    std::string line;
+    std::getline(arp_file, line); // 헤더 스킵
+
+    // /proc/net/arp 형식: IP address  HW type  Flags  HW address  Mask  Device
+    while (std::getline(arp_file, line)) {
+        std::istringstream iss(line);
+        std::string ip, hw_type, flags, mac, mask, device;
+        iss >> ip >> hw_type >> flags >> mac >> mask >> device;
+
+        // 한화비전 OUI: e4:30:22
+        if (mac.substr(0, 8) == "e4:30:22") {
+            result.push_back(ip);
+        }
     }
 
     return result;

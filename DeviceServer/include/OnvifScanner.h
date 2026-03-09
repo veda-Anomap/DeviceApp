@@ -30,6 +30,10 @@ private:
     std::vector<std::string> getRtspUrls(const std::string& ip);
     std::string getSingleRtspUrl(const std::string& ip);
 
+    // ARP 폴백 스캔 (IGMP Snooping 환경 대응)
+    void arpFallbackScan();
+    std::vector<std::string> getHanwhaIpsFromArp();
+
     std::atomic<bool>* is_running_ = nullptr;
     std::thread scan_thread_;
 
