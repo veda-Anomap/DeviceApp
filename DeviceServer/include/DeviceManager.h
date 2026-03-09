@@ -28,6 +28,9 @@ public:
     std::vector<DeviceInfo> getDeviceList();
     json getDeviceStatusList();
 
+    // Sub-Pi에 모터 제어 명령 전송 (IP로 장치 조회 → TCP 전송)
+    bool sendMotorCommand(const std::string& ip, const std::string& motor);
+
     // 외부 콜백 (DeviceController가 설정)
     using DeviceCallback = std::function<void(const DeviceInfo&)>;
     void setOnDeviceRegistered(DeviceCallback cb) { on_device_registered_ = cb; }

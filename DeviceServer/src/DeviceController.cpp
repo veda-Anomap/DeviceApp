@@ -36,6 +36,15 @@ void DeviceController::run() {
         internal_server_.broadcastImageEvent(meta, jpeg);
     });
 
+    // 1-5. 모터 제어 명령 → Sub-Pi로 전달
+    internal_server_.setOnDeviceCommand([this](const json& body) {
+        std::string ip = body.value("device", "");
+        std::string motor = body.value("motor", "");
+        if (!ip.empty() && !motor.empty()) {
+            device_mgr_.sendMotorCommand(ip, motor);
+        }
+    });
+
     // 2. 장치 탐색 시작 (UDP 비콘 + ONVIF 스캔 + 모니터링)
     device_mgr_.startDiscovery();
 

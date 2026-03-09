@@ -139,6 +139,12 @@ void ClientController::onQtMessage(int client_fd, MessageType type, const json& 
             break;
         }
 
+        case MessageType::DEVICE: {
+            std::cout << "[ClientServer] DEVICE command → DeviceServer" << std::endl;
+            internal_client_.sendDeviceCommand(body);
+            break;
+        }
+
         case MessageType::CAMERA: {
             json cameras = internal_client_.getCameraList();
             qt_server_.sendMessage(client_fd, MessageType::CAMERA, cameras);

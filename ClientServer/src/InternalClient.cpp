@@ -58,6 +58,13 @@ json InternalClient::getCameraList() {
     return cached_cameras_;
 }
 
+void InternalClient::sendDeviceCommand(const json& body) {
+    std::lock_guard<std::mutex> lock(fd_mutex_);
+    if (current_fd_ != -1) {
+        sendMessage(current_fd_, MessageType::DEVICE, body);
+    }
+}
+
 json InternalClient::getDeviceStatus() {
     std::lock_guard<std::mutex> lock(cache_mutex_);
     return cached_device_status_;

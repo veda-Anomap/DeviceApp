@@ -149,6 +149,47 @@ json DeviceManager::getDeviceStatusList() {
     return result;
 }
 
+bool DeviceManager::sendMotorCommand(const std::string& ip, const std::string& motor) {
+    std::lock_guard<std::mutex> lock(device_mutex_);
+
+    // IP로 Sub-Pi 찾기
+    for (auto& pair : devices_) {
+        DeviceInfo& info = pair.second;
+        if (info.type == DeviceType::SUB_PI && info.is_online && info.ip == ip) {
+            int fd = info.command_socket_fd;
+            if (fd < 0) {
+                std::cerr << "[Motor] Sub-Pi " << ip << " has no valid socket." << std::endl;
+                return false;
+            }
+
+            // DEVICE(0x04) 패킷 생성 (빅 엔디언 — 서버 간 통신)
+            json body;
+            body["device"] = ip;
+            body["motor"] = motor;
+            std::string body_str = body.dump();
+
+            PacketHeader header;
+            header.type = MessageType::DEVICE;
+            header.body_length = htonl(static_cast<uint32_t>(body_str.size()));
+
+            if (send(fd, &header, sizeof(header), MSG_NOSIGNAL) < 0) {
+                std::cerr << "[Motor] Failed to send header to " << ip << std::endl;
+                return false;
+            }
+            if (send(fd, body_str.c_str(), body_str.size(), MSG_NOSIGNAL) < 0) {
+                std::cerr << "[Motor] Failed to send body to " << ip << std::endl;
+                return false;
+            }
+
+            std::cout << "[Motor] Sent to " << ip << ": " << motor << std::endl;
+            return true;
+        }
+    }
+
+    std::cerr << "[Motor] No Sub-Pi found for IP: " << ip << std::endl;
+    return false;
+}
+
 // ======================== 모니터링 루프 ========================
 
 void DeviceManager::monitorLoop() {

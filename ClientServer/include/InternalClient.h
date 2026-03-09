@@ -25,6 +25,9 @@ public:
     // 현재 캐시된 카메라 리스트 가져오기
     json getCameraList();
 
+    // DeviceServer로 모터 제어 명령 전달
+    void sendDeviceCommand(const json& body);
+
     // 현재 캐시된 디바이스 상태 가져오기
     json getDeviceStatus();
 

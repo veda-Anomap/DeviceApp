@@ -139,6 +139,13 @@ void InternalServer::clientHandler(int client_fd) {
             sendMessage(client_fd, MessageType::AVAILABLE, device_status);
             std::cout << "[Internal] Sent device status to StreamServer." << std::endl;
         }
+        // DEVICE 명령 처리 (모터 제어 → Sub-Pi로 전달)
+        else if (header.type == MessageType::DEVICE) {
+            std::cout << "[Internal] DEVICE command received: " << body.dump() << std::endl;
+            if (on_device_command_) {
+                on_device_command_(body);
+            }
+        }
     }
 
     close(client_fd);

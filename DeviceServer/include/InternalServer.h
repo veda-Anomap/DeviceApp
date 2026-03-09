@@ -32,6 +32,10 @@ public:
     // 연결된 모든 ClientServer에 IMAGE 이벤트 전송 (JSON 메타 + JPEG 바이너리)
     void broadcastImageEvent(const json& meta, const std::vector<char>& jpeg);
 
+    // 모터 제어 명령 수신 콜백
+    using DeviceCommandCallback = std::function<void(const json& body)>;
+    void setOnDeviceCommand(DeviceCommandCallback cb) { on_device_command_ = cb; }
+
 private:
     void acceptLoop();
     void clientHandler(int client_fd);
@@ -50,6 +54,7 @@ private:
 
     CameraListProvider get_camera_list_;
     DeviceStatusProvider get_device_status_;
+    DeviceCommandCallback on_device_command_;
 };
 
 #endif
