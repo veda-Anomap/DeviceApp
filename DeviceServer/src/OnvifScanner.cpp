@@ -108,10 +108,21 @@ void OnvifScanner::runScan() {
                     continue;  // 이미 등록됨 → curl 스킵
                 }
 
+                // SUNAPI 2회 실패한 IP는 재시도 안 함
+                if (sunapi_fail_count_[cam_ip] >= 2) {
+                    continue;
+                }
+
                 // URL 수집 (오래 걸리는 작업)
                 std::cout << "[ONVIF] Trying SUNAPI for: " << cam_ip << std::endl;
                 std::vector<std::string> urls = getRtspUrls(cam_ip);
-                if (urls.empty()) continue;
+                if (urls.empty()) {
+                    sunapi_fail_count_[cam_ip]++;
+                    if (sunapi_fail_count_[cam_ip] >= 2) {
+                        std::cout << "[ONVIF] SUNAPI 2회 실패 → " << cam_ip << " 재시도 차단" << std::endl;
+                    }
+                    continue;
+                }
 
                 // 각 채널을 콜백으로 DeviceManager에 알림
                 for (int i = 0; i < (int)urls.size(); i++) {
@@ -246,10 +257,21 @@ void OnvifScanner::arpFallbackScan() {
             continue;
         }
 
+        // SUNAPI 2회 실패한 IP는 재시도 안 함
+        if (sunapi_fail_count_[ip] >= 2) {
+            continue;
+        }
+
         // SUNAPI로 RTSP URL 획득 시도
         std::cout << "[ARP Scan] Trying SUNAPI for: " << ip << std::endl;
         std::vector<std::string> urls = getRtspUrls(ip);
-        if (urls.empty()) continue;
+        if (urls.empty()) {
+            sunapi_fail_count_[ip]++;
+            if (sunapi_fail_count_[ip] >= 2) {
+                std::cout << "[ARP Scan] SUNAPI 2회 실패 → " << ip << " 재시도 차단" << std::endl;
+            }
+            continue;
+        }
 
         // 각 채널을 콜백으로 DeviceManager에 알림
         for (int i = 0; i < (int)urls.size(); i++) {

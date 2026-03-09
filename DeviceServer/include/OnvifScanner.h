@@ -2,6 +2,7 @@
 #define ONVIF_SCANNER_H
 
 #include <vector>
+#include <map>
 #include <thread>
 #include <atomic>
 #include <functional>
@@ -39,6 +40,9 @@ private:
 
     DeviceFoundCallback on_device_found_;
     IsRegisteredCallback is_registered_;
+
+    // SUNAPI 실패 IP 카운터 (2회 실패 시 재시도 차단)
+    std::map<std::string, int> sunapi_fail_count_;
 };
 
 #endif
