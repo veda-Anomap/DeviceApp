@@ -39,6 +39,10 @@ public:
     using ImageEventCallback = std::function<void(const json& meta, const std::vector<char>& jpeg)>;
     void setOnImageEvent(ImageEventCallback cb) { on_image_event_ = cb; }
 
+    // META 센서 데이터 수신 콜백 설정
+    using MetaEventCallback = std::function<void(const json& sensor_data)>;
+    void setOnMetaEvent(MetaEventCallback cb) { on_meta_event_ = cb; }
+
 private:
     // DeviceServer에 접속 시도 (재연결 포함)
     void connectionLoop();
@@ -78,6 +82,9 @@ private:
 
     // IMAGE 이벤트 콜백
     ImageEventCallback on_image_event_;
+
+    // META 콜백
+    MetaEventCallback on_meta_event_;
 };
 
 #endif

@@ -203,6 +203,12 @@ bool InternalClient::handleIncoming(int sock_fd) {
                 on_image_event_(body, jpeg_buf);
             }
         }
+        else if (header.type == MessageType::META) {
+            std::cout << "[InternalClient] META sensor data received" << std::endl;
+            if (on_meta_event_) {
+                on_meta_event_(body);
+            }
+        }
     } catch (...) {
         std::cerr << "[InternalClient] JSON parse error." << std::endl;
     }

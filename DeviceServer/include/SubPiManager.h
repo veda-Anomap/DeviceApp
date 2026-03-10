@@ -26,10 +26,12 @@ public:
     using AiEventCallback = std::function<void(const std::string& device_id, const json& event)>;
     using ImageEventCallback = std::function<void(const std::string& device_id, const json& meta, const std::vector<char>& jpeg)>;
     using AvailableEventCallback = std::function<void(const std::string& device_id, const json& status)>;
+    using MetaEventCallback = std::function<void(const std::string& device_id, const json& sensor_data)>;
     void setOnDeviceFound(DeviceFoundCallback cb) { on_device_found_ = cb; }
     void setOnAiEvent(AiEventCallback cb) { on_ai_event_ = cb; }
     void setOnImageEvent(ImageEventCallback cb) { on_image_event_ = cb; }
     void setOnAvailableEvent(AvailableEventCallback cb) { on_available_event_ = cb; }
+    void setOnMetaEvent(MetaEventCallback cb) { on_meta_event_ = cb; }
 
     // 중복 체크 콜백 (TCP 연결 전에 확인)
     using IsRegisteredCallback = std::function<bool(const std::string& device_id)>;
@@ -50,6 +52,7 @@ private:
     AiEventCallback on_ai_event_;
     ImageEventCallback on_image_event_;
     AvailableEventCallback on_available_event_;
+    MetaEventCallback on_meta_event_;
     IsRegisteredCallback is_registered_;
 };
 

@@ -190,6 +190,13 @@ void InternalServer::broadcastAiEvent(const json& event) {
     std::cout << "[Internal] Broadcasted AI event to " << client_fds_.size() << " client(s)." << std::endl;
 }
 
+void InternalServer::broadcastMetaEvent(const json& sensor_data) {
+    std::lock_guard<std::mutex> lock(client_mutex_);
+    for (int fd : client_fds_) {
+        sendMessage(fd, MessageType::META, sensor_data);
+    }
+}
+
 void InternalServer::broadcastImageEvent(const json& meta, const std::vector<char>& jpeg) {
     std::lock_guard<std::mutex> lock(client_mutex_);
     for (int fd : client_fds_) {

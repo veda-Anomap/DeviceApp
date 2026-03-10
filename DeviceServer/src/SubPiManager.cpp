@@ -266,6 +266,26 @@ void SubPiManager::subPiListener(std::string device_id, int socket_fd) {
                 if (error_count >= 3) break;
             }
         }
+        // 6. META 타입인 경우: 센서 배치 데이터 수신 → 즉시 전달
+        else if (header.type == MessageType::META) {
+            try {
+                json sensor_data = json::parse(body_str);
+                sensor_data["device_id"] = device_id;
+
+                std::cout << "[AI Listener] META from " << device_id
+                          << ": " << sensor_data.value("sensor_batch", json::array()).size()
+                          << " samples" << std::endl;
+
+                if (on_meta_event_) {
+                    on_meta_event_(device_id, sensor_data);
+                }
+                error_count = 0;
+            } catch (const json::parse_error& e) {
+                std::cerr << "[AI Listener] META JSON parse error: " << e.what() << std::endl;
+                error_count++;
+                if (error_count >= 3) break;
+            }
+        }
     }
 
     std::cout << "[AI Listener] Stopped for " << device_id << std::endl;

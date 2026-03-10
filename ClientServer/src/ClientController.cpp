@@ -31,6 +31,11 @@ void ClientController::run() {
         qt_server_.broadcastImage(meta, jpeg);
     });
 
+    // 1-3. META 센서 데이터 수신 → Qt에 즉시 브로드캐스트
+    internal_client_.setOnMetaEvent([this](const json& sensor_data) {
+        qt_server_.broadcast(MessageType::META, sensor_data);
+    });
+
     // 2. DeviceServer에 접속 (카메라 리스트 + AI 이벤트 수신)
     internal_client_.start("127.0.0.1", 30000);
 

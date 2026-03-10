@@ -36,7 +36,12 @@ void DeviceController::run() {
         internal_server_.broadcastImageEvent(meta, jpeg);
     });
 
-    // 1-5. 모터 제어 명령 → Sub-Pi로 전달
+    // 1-5. META 센서 데이터 → ClientServer로 즉시 전달
+    device_mgr_.setOnMetaEvent([this](const std::string& device_id, const json& sensor_data) {
+        internal_server_.broadcastMetaEvent(sensor_data);
+    });
+
+    // 1-6. 모터 제어 명령 → Sub-Pi로 전달
     internal_server_.setOnDeviceCommand([this](const json& body) {
         std::string ip = body.value("device", "");
         std::string motor = body.value("motor", "");

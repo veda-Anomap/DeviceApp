@@ -59,6 +59,13 @@ DeviceManager::DeviceManager() : is_discovering_(false) {
         }
     });
 
+    // SubPiManager META 이벤트 → 외부 콜백으로 전달 (센서 데이터 즉시 전달)
+    subpi_mgr_.setOnMetaEvent([this](const std::string& device_id, const json& sensor_data) {
+        if (on_meta_event_) {
+            on_meta_event_(device_id, sensor_data);
+        }
+    });
+
     // SubPiManager AVAILABLE 이벤트 → 캐시 갱신
     subpi_mgr_.setOnAvailableEvent([this](const std::string& device_id, const json& status) {
         std::lock_guard<std::mutex> lock(device_mutex_);

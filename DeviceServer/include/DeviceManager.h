@@ -44,6 +44,9 @@ public:
     using ImageEventCallback = std::function<void(const std::string& device_id, const json& meta, const std::vector<char>& jpeg)>;
     void setOnImageEvent(ImageEventCallback cb) { on_image_event_ = cb; }
 
+    using MetaEventCallback = std::function<void(const std::string& device_id, const json& sensor_data)>;
+    void setOnMetaEvent(MetaEventCallback cb) { on_meta_event_ = cb; }
+
 private:
     void monitorLoop();
     bool checkTcpPort(const std::string& ip, int port, int timeout_sec = 2);
@@ -66,6 +69,7 @@ private:
     DeviceRemovedCallback on_device_removed_;
     AiEventCallback on_ai_event_;
     ImageEventCallback on_image_event_;
+    MetaEventCallback on_meta_event_;
 };
 
 #endif
