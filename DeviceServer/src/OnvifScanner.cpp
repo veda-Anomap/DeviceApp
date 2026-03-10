@@ -242,8 +242,8 @@ std::string OnvifScanner::getSingleRtspUrl(const std::string& ip) {
 // ======================== ARP 폴백 스캔 ========================
 
 void OnvifScanner::arpFallbackScan() {
-    // 1. 브로드캐스트 ping으로 ARP 테이블 갱신 (패킷 1개, 부하 최소)
-    system("ping -b -c 1 -w 1 192.168.0.255 > /dev/null 2>&1");
+    // 1. 유니캐스트 ping으로 ARP 테이블 갱신 (fping: 병렬 전송, ~2초)
+    system("fping -a -g 192.168.0.1 192.168.0.254 -c 1 -q 2>/dev/null");
 
     // 2. ARP 테이블에서 한화 MAC 주소 필터링
     std::vector<std::string> hanwha_ips = getHanwhaIpsFromArp();
