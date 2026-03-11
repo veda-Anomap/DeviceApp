@@ -60,6 +60,9 @@ private:
     std::map<std::string, json> device_status_;  // SubCam 시스템 상태 캐시
     std::mutex device_mutex_;
 
+    // Sub-Pi command_socket_fd에 대한 send 직렬화
+    std::mutex send_mutex_;
+
     // 스레드 제어
     std::atomic<bool> is_discovering_;
     std::thread monitor_thread_;

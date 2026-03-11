@@ -41,7 +41,6 @@ private:
     void runBeaconReceiver();
     bool requestStartStream(const std::string& target_ip, int listen_port, int& tcp_socket);
     void subPiListener(std::string device_id, int socket_fd);
-    bool recvExact(int fd, void* buf, size_t len);
 
     std::atomic<bool>* is_running_ = nullptr;
     std::thread beacon_thread_;

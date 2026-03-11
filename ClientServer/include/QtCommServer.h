@@ -62,9 +62,6 @@ private:
     // 끝난 스레드를 정리하는 함수 (스레드 누수 방지)
     void cleanupFinishedThreads();
 
-    // N바이트를 정확히 읽는 헬퍼 함수
-    bool recvExact(int fd, void* buf, size_t len);
-
     // 서버 소켓
     int server_fd_ = -1;
     int port_ = 20000;

@@ -8,6 +8,7 @@
 #include <sys/select.h>
 
 #include "SubPiManager.h"
+#include "NetUtil.h"
 
 SubPiManager::SubPiManager() {}
 
@@ -291,15 +292,3 @@ void SubPiManager::subPiListener(std::string device_id, int socket_fd) {
     std::cout << "[AI Listener] Stopped for " << device_id << std::endl;
 }
 
-// ======================== TCP 수신 헬퍼 ========================
-
-bool SubPiManager::recvExact(int fd, void* buf, size_t len) {
-    size_t received = 0;
-    char* ptr = static_cast<char*>(buf);
-    while (received < len) {
-        ssize_t n = recv(fd, ptr + received, len - received, 0);
-        if (n <= 0) return false;
-        received += n;
-    }
-    return true;
-}

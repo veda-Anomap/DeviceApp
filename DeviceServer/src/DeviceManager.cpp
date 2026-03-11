@@ -7,6 +7,7 @@
 #include <cerrno>
 
 #include "DeviceManager.h"
+#include "NetUtil.h"
 
 // ======================== 생성자 / 소멸자 ========================
 
@@ -157,44 +158,48 @@ json DeviceManager::getDeviceStatusList() {
 }
 
 bool DeviceManager::sendMotorCommand(const std::string& ip, const std::string& motor) {
-    std::lock_guard<std::mutex> lock(device_mutex_);
+    int fd = -1;
 
-    // IP로 Sub-Pi 찾기
-    for (auto& pair : devices_) {
-        DeviceInfo& info = pair.second;
-        if (info.type == DeviceType::SUB_PI && info.is_online && info.ip == ip) {
-            int fd = info.command_socket_fd;
-            if (fd < 0) {
-                std::cerr << "[Motor] Sub-Pi " << ip << " has no valid socket." << std::endl;
-                return false;
+    // [1] device_mutex_: fd 조회만 (빠르게 해제)
+    {
+        std::lock_guard<std::mutex> lock(device_mutex_);
+        for (const auto& pair : devices_) {
+            const DeviceInfo& info = pair.second;
+            if (info.type == DeviceType::SUB_PI && info.is_online && info.ip == ip) {
+                fd = info.command_socket_fd;
+                break;
             }
-
-            // DEVICE(0x04) 패킷 생성 (빅 엔디언 — 서버 간 통신)
-            json body;
-            body["device"] = ip;
-            body["motor"] = motor;
-            std::string body_str = body.dump();
-
-            PacketHeader header;
-            header.type = MessageType::DEVICE;
-            header.body_length = htonl(static_cast<uint32_t>(body_str.size()));
-
-            if (send(fd, &header, sizeof(header), MSG_NOSIGNAL) < 0) {
-                std::cerr << "[Motor] Failed to send header to " << ip << std::endl;
-                return false;
-            }
-            if (send(fd, body_str.c_str(), body_str.size(), MSG_NOSIGNAL) < 0) {
-                std::cerr << "[Motor] Failed to send body to " << ip << std::endl;
-                return false;
-            }
-
-            std::cout << "[Motor] Sent to " << ip << ": " << motor << std::endl;
-            return true;
         }
     }
 
-    std::cerr << "[Motor] No Sub-Pi found for IP: " << ip << std::endl;
-    return false;
+    if (fd < 0) {
+        std::cerr << "[Motor] No Sub-Pi found for IP: " << ip << std::endl;
+        return false;
+    }
+
+    // [2] send_mutex_: 전송 직렬화 (subPiListener와 경쟁 방지)
+    std::lock_guard<std::mutex> send_lock(send_mutex_);
+
+    json body;
+    body["device"] = ip;
+    body["motor"] = motor;
+    std::string body_str = body.dump();
+
+    PacketHeader header;
+    header.type = MessageType::DEVICE;
+    header.body_length = htonl(static_cast<uint32_t>(body_str.size()));
+
+    if (!sendExact(fd, &header, sizeof(header))) {
+        std::cerr << "[Motor] Failed to send header to " << ip << std::endl;
+        return false;
+    }
+    if (!sendExact(fd, body_str.c_str(), body_str.size())) {
+        std::cerr << "[Motor] Failed to send body to " << ip << std::endl;
+        return false;
+    }
+
+    std::cout << "[Motor] Sent to " << ip << ": " << motor << std::endl;
+    return true;
 }
 
 // ======================== 모니터링 루프 ========================
@@ -206,67 +211,86 @@ void DeviceManager::monitorLoop() {
         std::this_thread::sleep_for(std::chrono::seconds(3));
         if (!is_discovering_) break;
 
-        std::vector<std::string> went_offline;
-        std::map<std::string, bool> ip_check_cache;  // 한화 IP별 체크 결과 캐시
+        // ========== [1단계] 락 안에서 체크 대상만 추출 (네트워크 I/O 없이) ==========
+        struct CheckTarget {
+            std::string id;
+            std::string ip;
+            DeviceType type;
+            int fd;
+        };
+        std::vector<CheckTarget> targets;
 
         {
             std::lock_guard<std::mutex> lock(device_mutex_);
-            for (auto& pair : devices_) {
-                std::string device_id = pair.first;
-                DeviceInfo& info = pair.second;
+            for (const auto& pair : devices_) {
+                const DeviceInfo& info = pair.second;
+                if (!info.is_online) continue;
+                targets.push_back({pair.first, info.ip, info.type, info.command_socket_fd});
+            }
+        }
+        // 여기서 device_mutex_ 해제됨 → 다른 스레드가 장치에 접근 가능
 
-                if (!info.is_online) continue;  // 이미 오프라인이면 스킵
+        // ========== [2단계] 락 없이 헬스체크 수행 (네트워크 I/O) ==========
+        std::vector<std::string> went_offline;
+        std::map<std::string, bool> ip_check_cache;  // 한화 IP별 체크 결과 캐시
 
-                // Sub-Pi: TCP 소켓 체크
-                if (info.type == DeviceType::SUB_PI) {
-                    bool is_alive = true;
+        for (const auto& target : targets) {
+            if (!is_discovering_) break;
 
-                    char buffer[1];
-                    int recv_result = recv(info.command_socket_fd, buffer, 1, MSG_PEEK | MSG_DONTWAIT);
+            // Sub-Pi: TCP 소켓 체크
+            if (target.type == DeviceType::SUB_PI) {
+                bool is_alive = true;
 
-                    if (recv_result == 0) {
-                        std::cout << "[Monitor] Detected Closed Connection (recv=0): " << device_id << std::endl;
+                char buffer[1];
+                int recv_result = recv(target.fd, buffer, 1, MSG_PEEK | MSG_DONTWAIT);
+
+                if (recv_result == 0) {
+                    std::cout << "[Monitor] Detected Closed Connection (recv=0): " << target.id << std::endl;
+                    is_alive = false;
+                }
+                else if (recv_result < 0) {
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        std::cout << "[Monitor] Recv Error: " << target.id << " (" << strerror(errno) << ")" << std::endl;
                         is_alive = false;
                     }
-                    else if (recv_result < 0) {
+                }
+
+                if (is_alive) {
+                    int sent = send(target.fd, nullptr, 0, MSG_NOSIGNAL | MSG_DONTWAIT);
+                    if (sent < 0) {
                         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                            std::cout << "[Monitor] Recv Error: " << device_id << " (" << strerror(errno) << ")" << std::endl;
+                            std::cout << "[Monitor] Send Error (Broken Pipe): " << target.id << std::endl;
                             is_alive = false;
                         }
                     }
-
-                    if (is_alive) {
-                        int sent = send(info.command_socket_fd, nullptr, 0, MSG_NOSIGNAL | MSG_DONTWAIT);
-                        if (sent < 0) {
-                            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                                std::cout << "[Monitor] Send Error (Broken Pipe): " << device_id << std::endl;
-                                is_alive = false;
-                            }
-                        }
-                    }
-
-                    if (!is_alive) {
-                        went_offline.push_back(device_id);
-                    }
                 }
-                // Hanwha: TCP 554 포트 체크 (같은 IP는 1번만)
-                else if (info.type == DeviceType::HANWHA) {
-                    if (ip_check_cache.find(info.ip) == ip_check_cache.end()) {
-                        ip_check_cache[info.ip] = checkTcpPort(info.ip, 554);
-                    }
-                    if (!ip_check_cache[info.ip]) {
-                        std::cout << "[Monitor] Hanwha offline (TCP 554 failed): " << device_id << std::endl;
-                        went_offline.push_back(device_id);
-                    }
+
+                if (!is_alive) {
+                    went_offline.push_back(target.id);
+                }
+            }
+            // Hanwha: TCP 554 포트 체크 (같은 IP는 1번만)
+            else if (target.type == DeviceType::HANWHA) {
+                if (ip_check_cache.find(target.ip) == ip_check_cache.end()) {
+                    ip_check_cache[target.ip] = checkTcpPort(target.ip, 554);
+                }
+                if (!ip_check_cache[target.ip]) {
+                    std::cout << "[Monitor] Hanwha offline (TCP 554 failed): " << target.id << std::endl;
+                    went_offline.push_back(target.id);
                 }
             }
         }
 
-        // 오프라인 전환 (삭제하지 않음)
+        // ========== [3단계] 락 잡고 결과 반영 ==========
         if (!went_offline.empty()) {
             std::lock_guard<std::mutex> lock(device_mutex_);
             for (const auto& id : went_offline) {
-                DeviceInfo& info = devices_[id];
+                auto it = devices_.find(id);
+                if (it == devices_.end()) continue;
+
+                DeviceInfo& info = it->second;
+                if (!info.is_online) continue;  // 이미 다른 경로로 오프라인 처리됨
+
                 info.is_online = false;
 
                 // Sub-Pi: 소켓 정리

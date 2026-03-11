@@ -6,8 +6,10 @@
 #include <cstring>
 #include <cerrno>
 #include <sys/select.h>
+#include <chrono>
 
 #include "InternalClient.h"
+#include "NetUtil.h"
 
 InternalClient::InternalClient() {
     cached_cameras_ = json::array();
@@ -175,8 +177,16 @@ bool InternalClient::handleIncoming(int sock_fd) {
     std::vector<char> buf(body_len);
     if (!recvExact(sock_fd, buf.data(), body_len)) return false;
 
+    // Push 이벤트 디스패치
+    dispatchPushEvent(header, buf, sock_fd);
+    return true;
+}
+
+// ======================== Push 이벤트 디스패치 ========================
+
+void InternalClient::dispatchPushEvent(const PacketHeader& header, const std::vector<char>& body_buf, int sock_fd) {
     try {
-        json body = json::parse(std::string(buf.begin(), buf.end()));
+        json body = json::parse(std::string(body_buf.begin(), body_buf.end()));
 
         if (header.type == MessageType::AI) {
             std::cout << "[InternalClient] AI event received: " << body.dump() << std::endl;
@@ -188,12 +198,12 @@ bool InternalClient::handleIncoming(int sock_fd) {
             uint32_t jpeg_size = body.value("jpeg_size", 0u);
             if (jpeg_size == 0 || jpeg_size > 10 * 1024 * 1024) {
                 std::cerr << "[InternalClient] Invalid jpeg_size: " << jpeg_size << std::endl;
-                return true;
+                return;
             }
 
             // JPEG 바이너리 수신
             std::vector<char> jpeg_buf(jpeg_size);
-            if (!recvExact(sock_fd, jpeg_buf.data(), jpeg_size)) return false;
+            if (!recvExact(sock_fd, jpeg_buf.data(), jpeg_size)) return;
 
             std::cout << "[InternalClient] IMAGE received: frame " 
                       << body.value("frame_index", -1) << "/" << body.value("total_frames", -1)
@@ -210,68 +220,81 @@ bool InternalClient::handleIncoming(int sock_fd) {
             }
         }
     } catch (...) {
-        std::cerr << "[InternalClient] JSON parse error." << std::endl;
+        std::cerr << "[InternalClient] JSON parse error in dispatchPushEvent." << std::endl;
     }
-
-    return true;
 }
 
+// ======================== 응답 대기 (Push 이벤트 디스패치 + 타임아웃) ========================
+
+json InternalClient::waitForResponse(int sock_fd, MessageType expected_type) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+
+    while (is_running_) {
+        // 남은 시간 계산
+        auto now = std::chrono::steady_clock::now();
+        auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+        if (remaining_ms <= 0) {
+            std::cerr << "[InternalClient] waitForResponse timeout (expected type: 0x"
+                      << std::hex << static_cast<int>(expected_type) << std::dec << ")" << std::endl;
+            return nullptr;  // 타임아웃
+        }
+
+        // select로 데이터 대기
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(sock_fd, &read_fds);
+
+        struct timeval tv;
+        tv.tv_sec = remaining_ms / 1000;
+        tv.tv_usec = (remaining_ms % 1000) * 1000;
+
+        int ret = select(sock_fd + 1, &read_fds, nullptr, nullptr, &tv);
+        if (ret < 0) return nullptr;   // 에러
+        if (ret == 0) {
+            std::cerr << "[InternalClient] waitForResponse timeout (select)" << std::endl;
+            return nullptr;  // 타임아웃
+        }
+
+        // 헤더 수신
+        PacketHeader header;
+        if (!recvExact(sock_fd, &header, sizeof(header))) return nullptr;
+
+        uint32_t body_len = ntohl(header.body_length);
+        if (body_len == 0 || body_len > 1024 * 1024) return nullptr;
+
+        std::vector<char> buf(body_len);
+        if (!recvExact(sock_fd, buf.data(), body_len)) return nullptr;
+
+        // 기대한 타입이면 반환
+        if (header.type == expected_type) {
+            try {
+                return json::parse(std::string(buf.begin(), buf.end()));
+            } catch (...) {
+                return nullptr;
+            }
+        }
+
+        // Push 이벤트 → 콜백 디스패치 후 계속 대기
+        dispatchPushEvent(header, buf, sock_fd);
+    }
+
+    return nullptr;
+}
+
+// ======================== 카메라 리스트 / 디바이스 상태 요청 ========================
+
 json InternalClient::requestCameraList(int sock_fd) {
-    // CAMERA 요청 전송 (빈 body)
     if (!sendMessage(sock_fd, MessageType::CAMERA, {})) {
         return nullptr;
     }
-
-    // 응답 수신
-    PacketHeader header;
-    if (!recvExact(sock_fd, &header, sizeof(header))) {
-        return nullptr;
-    }
-
-    uint32_t body_len = ntohl(header.body_length);
-    if (body_len == 0 || body_len > 1024 * 1024) {
-        return nullptr;
-    }
-
-    std::vector<char> buf(body_len);
-    if (!recvExact(sock_fd, buf.data(), body_len)) {
-        return nullptr;
-    }
-
-    try {
-        return json::parse(std::string(buf.begin(), buf.end()));
-    } catch (...) {
-        return nullptr;
-    }
+    return waitForResponse(sock_fd, MessageType::CAMERA);
 }
 
 json InternalClient::requestDeviceStatus(int sock_fd) {
-    // AVAILABLE 요청 전송 (빈 body)
     if (!sendMessage(sock_fd, MessageType::AVAILABLE, {})) {
         return nullptr;
     }
-
-    // 응답 수신
-    PacketHeader header;
-    if (!recvExact(sock_fd, &header, sizeof(header))) {
-        return nullptr;
-    }
-
-    uint32_t body_len = ntohl(header.body_length);
-    if (body_len == 0 || body_len > 1024 * 1024) {
-        return nullptr;
-    }
-
-    std::vector<char> buf(body_len);
-    if (!recvExact(sock_fd, buf.data(), body_len)) {
-        return nullptr;
-    }
-
-    try {
-        return json::parse(std::string(buf.begin(), buf.end()));
-    } catch (...) {
-        return nullptr;
-    }
+    return waitForResponse(sock_fd, MessageType::AVAILABLE);
 }
 
 bool InternalClient::sendMessage(int fd, MessageType type, const json& body) {
@@ -280,20 +303,11 @@ bool InternalClient::sendMessage(int fd, MessageType type, const json& body) {
     header.type = type;
     header.body_length = htonl(static_cast<uint32_t>(body_str.size()));
 
-    if (send(fd, &header, sizeof(header), MSG_NOSIGNAL) < 0) return false;
+    if (!sendExact(fd, &header, sizeof(header))) return false;
     if (!body_str.empty()) {
-        if (send(fd, body_str.c_str(), body_str.size(), MSG_NOSIGNAL) < 0) return false;
+        if (!sendExact(fd, body_str.c_str(), body_str.size())) return false;
     }
     return true;
 }
 
-bool InternalClient::recvExact(int fd, void* buf, size_t len) {
-    size_t received = 0;
-    char* ptr = static_cast<char*>(buf);
-    while (received < len) {
-        ssize_t n = recv(fd, ptr + received, len - received, 0);
-        if (n <= 0) return false;
-        received += n;
-    }
-    return true;
-}
+// recvExact: NetUtil.h 공통 함수 사용

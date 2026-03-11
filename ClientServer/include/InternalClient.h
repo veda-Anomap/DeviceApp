@@ -56,7 +56,12 @@ private:
     // DeviceServer에 AVAILABLE 요청 보내고 응답 받기
     json requestDeviceStatus(int sock_fd);
 
-    bool recvExact(int fd, void* buf, size_t len);
+    // expected_type 응답이 올 때까지 대기 (Push 이벤트는 디스패치, 타임아웃 포함)
+    json waitForResponse(int sock_fd, MessageType expected_type);
+
+    // Push 이벤트(AI/IMAGE/META)를 콜백으로 디스패치
+    void dispatchPushEvent(const PacketHeader& header, const std::vector<char>& body_buf, int sock_fd);
+
     bool sendMessage(int fd, MessageType type, const json& body);
 
     std::string auth_host_;

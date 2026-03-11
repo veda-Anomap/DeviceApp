@@ -7,6 +7,7 @@
 #include <cerrno>
 
 #include "InternalServer.h"
+#include "NetUtil.h"
 
 InternalServer::InternalServer() {}
 
@@ -164,23 +165,14 @@ bool InternalServer::sendMessage(int client_fd, MessageType type, const json& bo
     header.type = type;
     header.body_length = htonl(static_cast<uint32_t>(body_str.size()));
 
-    if (send(client_fd, &header, sizeof(header), MSG_NOSIGNAL) < 0) return false;
+    if (!sendExact(client_fd, &header, sizeof(header))) return false;
     if (!body_str.empty()) {
-        if (send(client_fd, body_str.c_str(), body_str.size(), MSG_NOSIGNAL) < 0) return false;
+        if (!sendExact(client_fd, body_str.c_str(), body_str.size())) return false;
     }
     return true;
 }
 
-bool InternalServer::recvExact(int fd, void* buf, size_t len) {
-    size_t received = 0;
-    char* ptr = static_cast<char*>(buf);
-    while (received < len) {
-        ssize_t n = recv(fd, ptr + received, len - received, 0);
-        if (n <= 0) return false;
-        received += n;
-    }
-    return true;
-}
+// recvExact: NetUtil.h 공통 함수 사용
 
 void InternalServer::broadcastAiEvent(const json& event) {
     std::lock_guard<std::mutex> lock(client_mutex_);
@@ -214,12 +206,12 @@ bool InternalServer::sendImageMessage(int client_fd, const json& meta, const std
     header.body_length = htonl(static_cast<uint32_t>(meta_str.size()));
 
     // 1. 헤더 전송
-    if (send(client_fd, &header, sizeof(header), MSG_NOSIGNAL) < 0) return false;
+    if (!sendExact(client_fd, &header, sizeof(header))) return false;
     // 2. JSON 메타데이터 전송
-    if (send(client_fd, meta_str.c_str(), meta_str.size(), MSG_NOSIGNAL) < 0) return false;
+    if (!sendExact(client_fd, meta_str.c_str(), meta_str.size())) return false;
     // 3. JPEG 바이너리 전송
     if (!jpeg.empty()) {
-        if (send(client_fd, jpeg.data(), jpeg.size(), MSG_NOSIGNAL) < 0) return false;
+        if (!sendExact(client_fd, jpeg.data(), jpeg.size())) return false;
     }
 
     return true;

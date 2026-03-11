@@ -42,7 +42,6 @@ public:
 private:
     void acceptLoop();
     void clientHandler(int client_fd);
-    bool recvExact(int fd, void* buf, size_t len);
     bool sendMessage(int client_fd, MessageType type, const json& body);
     bool sendImageMessage(int client_fd, const json& meta, const std::vector<char>& jpeg);
 

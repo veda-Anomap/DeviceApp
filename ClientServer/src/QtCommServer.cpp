@@ -8,6 +8,7 @@
 #include <algorithm>
 
 #include "QtCommServer.h"
+#include "NetUtil.h"
 
 // ======================== 생성자 / 소멸자 ========================
 
@@ -219,14 +220,14 @@ bool QtCommServer::sendMessage(int client_fd, MessageType type, const json& body
     header.body_length = static_cast<uint32_t>(body_str.size());
 
     // 헤더 전송
-    if (send(client_fd, &header, sizeof(header), MSG_NOSIGNAL) < 0) {
+    if (!sendExact(client_fd, &header, sizeof(header))) {
         std::cerr << "[QtComm] Send header failed (fd: " << client_fd << ")" << std::endl;
         return false;
     }
 
     // 본문 전송
     if (!body_str.empty()) {
-        if (send(client_fd, body_str.c_str(), body_str.size(), MSG_NOSIGNAL) < 0) {
+        if (!sendExact(client_fd, body_str.c_str(), body_str.size())) {
             std::cerr << "[QtComm] Send body failed (fd: " << client_fd << ")" << std::endl;
             return false;
         }
@@ -284,19 +285,7 @@ int QtCommServer::getClientCount() {
 
 // ======================== 헬퍼 함수 ========================
 
-bool QtCommServer::recvExact(int fd, void* buf, size_t len) {
-    size_t received = 0;
-    char* ptr = static_cast<char*>(buf);
-
-    while (received < len) {
-        ssize_t n = recv(fd, ptr + received, len - received, 0);
-        if (n <= 0) {
-            return false;
-        }
-        received += n;
-    }
-    return true;
-}
+// recvExact: NetUtil.h 공통 함수 사용
 
 // ======================== 스레드 정리 ========================
 
@@ -336,12 +325,12 @@ bool QtCommServer::sendImageMessage(int client_fd, const json& meta, const std::
     header.body_length = static_cast<uint32_t>(meta_str.size());
 
     // 1. 헤더 전송
-    if (send(client_fd, &header, sizeof(header), MSG_NOSIGNAL) < 0) return false;
+    if (!sendExact(client_fd, &header, sizeof(header))) return false;
     // 2. JSON 메타데이터 전송
-    if (send(client_fd, meta_str.c_str(), meta_str.size(), MSG_NOSIGNAL) < 0) return false;
+    if (!sendExact(client_fd, meta_str.c_str(), meta_str.size())) return false;
     // 3. JPEG 바이너리 전송
     if (!jpeg.empty()) {
-        if (send(client_fd, jpeg.data(), jpeg.size(), MSG_NOSIGNAL) < 0) return false;
+        if (!sendExact(client_fd, jpeg.data(), jpeg.size())) return false;
     }
 
     return true;

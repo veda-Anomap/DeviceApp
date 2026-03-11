@@ -318,7 +318,56 @@ Sub-Pi의 STM32 센서에서 수집한 환경 데이터를 5초 주기로 전달
 
 ---
 
-## 9. IMAGE (이벤트 녹화 이미지, `0x0a`)
+## 9. AI 이벤트 (낙상 감지 등, `0x06`)
+
+### 데이터 흐름
+
+```
+Sub-Pi (AI 추론) ──[0x06, Big Endian]──▶ DeviceServer (SubPiManager)
+                                         │  device_id 추가
+                                         ▼
+                                       DeviceManager ──▶ InternalServer
+                                                          │  broadcastAiEvent
+                                                          ▼
+                                       ClientServer (InternalClient)
+                                         │
+                                         ▼
+                                       QtCommServer ──[0x06, Little Endian]──▶ Qt
+```
+
+> [!NOTE]
+> AI 이벤트는 **Push 방식**입니다. 주기적 폴링이 아니라, Sub-Pi에서 이벤트 발생 시 즉시 Qt까지 전달됩니다.
+> 서버는 투명 프록시 역할만 하며, `device_id` 필드만 추가합니다.
+
+### JSON 형식 (Type `0x06`)
+
+Sub-Pi가 낙상 등 AI 이벤트를 감지하면 아래 JSON을 전송합니다.
+
+```json
+{
+    "device_id": "SubPi_192.168.0.43",
+    "event": "fall_detected",
+    "confidence": 0.92,
+    "track_id": 7,
+    "timestamp": 1741596000
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `device_id` | string | Sub-Pi 식별자 (서버가 추가) |
+| `event` | string | 이벤트 유형 (예: `"fall_detected"`) |
+| `confidence` | float | AI 감지 신뢰도 (0.0 ~ 1.0) |
+| `track_id` | int | 추적 대상 ID |
+| `timestamp` | int | Unix 타임스탬프 |
+
+> [!IMPORTANT]
+> AI 이벤트 직후 해당 Sub-Pi에서 **IMAGE(`0x0a`) 패킷**이 연속 전송됩니다.
+> 이벤트 전후 녹화 프레임(~150장 JPEG)이 독립 패킷으로 순차 도착하므로, `track_id`로 AI 이벤트와 매칭할 수 있습니다.
+
+---
+
+## 10. IMAGE (이벤트 녹화 이미지, `0x0a`)
 
 ### 패킷 구조 (일반 메시지와 다름!)
 
@@ -354,7 +403,7 @@ Sub-Pi의 STM32 센서에서 수집한 환경 데이터를 5초 주기로 전달
 
 ---
 
-## 10. Qt C++ 예제 코드
+## 11. Qt C++ 예제 코드
 
 ### 패킷 전송
 ```cpp
@@ -390,10 +439,29 @@ void onReadyRead() {
             case 0x02: /* SUCCESS */ break;
             case 0x03: /* FAIL */    break;
             case 0x05: /* AVAILABLE (admin) */ break;
+            case 0x06: /* AI 이벤트 */ break;
             case 0x07: /* CAMERA */  break;
             case 0x0a: /* IMAGE — JPEG 추가 수신 필요! */ break;
         }
     }
+}
+```
+
+### AI 이벤트 수신 예시
+```cpp
+case 0x06: { // AI 이벤트
+    QJsonObject ai = QJsonDocument::fromJson(jsonData).object();
+
+    QString deviceId = ai["device_id"].toString();
+    QString event    = ai["event"].toString();
+    double confidence = ai["confidence"].toDouble();
+    int trackId      = ai["track_id"].toInt();
+
+    // 예: 낙상 감지 알림 표시
+    qDebug() << "[AI]" << deviceId << event << confidence;
+
+    // 이후 IMAGE(0x0a) 패킷이 track_id로 연결되어 수신됨
+    break;
 }
 ```
 
