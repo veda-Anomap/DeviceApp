@@ -6,6 +6,9 @@
 #include <atomic>
 #include <functional>
 #include <string>
+#include <map>
+#include <set>
+#include <mutex>
 
 #include "Common.h"
 #include "json.hpp"
@@ -41,10 +44,13 @@ private:
     void runBeaconReceiver();
     bool requestStartStream(const std::string& target_ip, int listen_port, int& tcp_socket);
     void subPiListener(std::string device_id, int socket_fd);
+    void cleanupFinishedThreads();
 
     std::atomic<bool>* is_running_ = nullptr;
     std::thread beacon_thread_;
-    std::vector<std::thread> listener_threads_;
+    std::map<std::string, std::thread> listener_threads_;  // device_id → thread
+    std::set<std::string> finished_ids_;                   // 종료된 device_id 목록
+    std::mutex finished_mutex_;
     int next_port_ = 15001;
 
     DeviceFoundCallback on_device_found_;

@@ -67,17 +67,34 @@ void InternalServer::stop() {
         server_fd_ = -1;
     }
 
+    // 모든 클라이언트 소켓 shutdown (스레드가 recv에서 빠져나오도록)
     {
         std::lock_guard<std::mutex> lock(client_mutex_);
         for (int fd : client_fds_) {
             shutdown(fd, SHUT_RDWR);
+        }
+    }
+
+    // accept 스레드 종료 대기
+    if (accept_thread_.joinable()) {
+        accept_thread_.join();
+    }
+
+    // 모든 클라이언트 핸들러 스레드 join
+    for (auto& pair : client_threads_) {
+        if (pair.second.joinable()) {
+            pair.second.join();
+        }
+    }
+    client_threads_.clear();
+
+    // 소켓 close
+    {
+        std::lock_guard<std::mutex> lock(client_mutex_);
+        for (int fd : client_fds_) {
             close(fd);
         }
         client_fds_.clear();
-    }
-
-    if (accept_thread_.joinable()) {
-        accept_thread_.join();
     }
 
     std::cout << "[Internal] Server stopped." << std::endl;
@@ -85,6 +102,9 @@ void InternalServer::stop() {
 
 void InternalServer::acceptLoop() {
     while (is_running_) {
+        // 종료된 스레드 정리
+        cleanupFinishedThreads();
+
         struct sockaddr_in client_addr;
         socklen_t addr_len = sizeof(client_addr);
 
@@ -96,15 +116,15 @@ void InternalServer::acceptLoop() {
             break;
         }
 
-        std::cout << "[Internal] StreamServer connected (fd: " << client_fd << ")" << std::endl;
+        std::cout << "[Internal] Client connected (fd: " << client_fd << ")" << std::endl;
 
         {
             std::lock_guard<std::mutex> lock(client_mutex_);
             client_fds_.push_back(client_fd);
         }
 
-        // 클라이언트 핸들러 (detach — 내부 통신은 간단하므로)
-        std::thread(&InternalServer::clientHandler, this, client_fd).detach();
+        // 스레드를 map에 보관 (join 가능)
+        client_threads_[client_fd] = std::thread(&InternalServer::clientHandler, this, client_fd);
     }
 }
 
@@ -157,6 +177,34 @@ void InternalServer::clientHandler(int client_fd) {
             client_fds_.end()
         );
     }
+
+    // 종료된 fd를 finished 목록에 등록 → acceptLoop에서 join 후 제거
+    {
+        std::lock_guard<std::mutex> lock(finished_mutex_);
+        finished_fds_.insert(client_fd);
+    }
+}
+
+void InternalServer::cleanupFinishedThreads() {
+    std::set<int> fds_to_clean;
+    {
+        std::lock_guard<std::mutex> lock(finished_mutex_);
+        if (finished_fds_.empty()) return;
+        fds_to_clean.swap(finished_fds_);
+    }
+
+    for (int fd : fds_to_clean) {
+        auto it = client_threads_.find(fd);
+        if (it != client_threads_.end()) {
+            if (it->second.joinable()) {
+                it->second.join();
+            }
+            client_threads_.erase(it);
+        }
+    }
+
+    std::cout << "[Internal] Cleaned up " << fds_to_clean.size()
+              << " finished thread(s)." << std::endl;
 }
 
 bool InternalServer::sendMessage(int client_fd, MessageType type, const json& body) {

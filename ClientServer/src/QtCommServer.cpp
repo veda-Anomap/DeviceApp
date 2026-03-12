@@ -340,7 +340,8 @@ void QtCommServer::broadcastImage(const json& meta, const std::vector<char>& jpe
     std::lock_guard<std::mutex> lock(client_mutex_);
     for (int fd : client_fds_) {
         // role이 설정된 (로그인된) 클라이언트에게만 전송
-        if (!client_roles_[fd].empty()) {
+        auto role_it = client_roles_.find(fd);
+        if (role_it != client_roles_.end() && !role_it->second.empty()) {
             sendImageMessage(fd, meta, jpeg);
         }
     }

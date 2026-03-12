@@ -22,9 +22,13 @@ void SubPiManager::start(std::atomic<bool>& is_running) {
 }
 
 void SubPiManager::stop() {
-    for (auto& t : listener_threads_) {
-        if (t.joinable()) t.join();
+    // 모든 리스너 스레드 join
+    for (auto& pair : listener_threads_) {
+        if (pair.second.joinable()) {
+            pair.second.join();
+        }
     }
+    listener_threads_.clear();
     if (beacon_thread_.joinable()) beacon_thread_.join();
 }
 
@@ -96,8 +100,18 @@ void SubPiManager::runBeaconReceiver() {
                         on_device_found_(info, tcp_socket);
                     }
 
-                    // AI 이벤트 리스너 스레드 생성
-                    listener_threads_.emplace_back(&SubPiManager::subPiListener, this, id, tcp_socket);
+                    // AI 이벤트 리스너 스레드 생성 (종료된 스레드 정리 후)
+                    cleanupFinishedThreads();
+
+                    // 기존 스레드가 있으면 join 후 교체
+                    auto it = listener_threads_.find(id);
+                    if (it != listener_threads_.end()) {
+                        if (it->second.joinable()) {
+                            it->second.join();
+                        }
+                        listener_threads_.erase(it);
+                    }
+                    listener_threads_[id] = std::thread(&SubPiManager::subPiListener, this, id, tcp_socket);
                 }
             }
         }
@@ -290,5 +304,32 @@ void SubPiManager::subPiListener(std::string device_id, int socket_fd) {
     }
 
     std::cout << "[AI Listener] Stopped for " << device_id << std::endl;
+
+    // 종료된 device_id를 finished 목록에 등록
+    {
+        std::lock_guard<std::mutex> lock(finished_mutex_);
+        finished_ids_.insert(device_id);
+    }
 }
 
+void SubPiManager::cleanupFinishedThreads() {
+    std::set<std::string> ids_to_clean;
+    {
+        std::lock_guard<std::mutex> lock(finished_mutex_);
+        if (finished_ids_.empty()) return;
+        ids_to_clean.swap(finished_ids_);
+    }
+
+    for (const auto& id : ids_to_clean) {
+        auto it = listener_threads_.find(id);
+        if (it != listener_threads_.end()) {
+            if (it->second.joinable()) {
+                it->second.join();
+            }
+            listener_threads_.erase(it);
+        }
+    }
+
+    std::cout << "[SubPi] Cleaned up " << ids_to_clean.size()
+              << " finished listener(s)." << std::endl;
+}

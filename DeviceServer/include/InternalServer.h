@@ -10,6 +10,9 @@
 #include "Common.h"
 #include "json.hpp"
 
+#include <map>
+#include <set>
+
 using json = nlohmann::json;
 
 // 카메라 리스트를 가져오는 콜백 타입
@@ -42,6 +45,7 @@ public:
 private:
     void acceptLoop();
     void clientHandler(int client_fd);
+    void cleanupFinishedThreads();
     bool sendMessage(int client_fd, MessageType type, const json& body);
     bool sendImageMessage(int client_fd, const json& meta, const std::vector<char>& jpeg);
 
@@ -50,9 +54,14 @@ private:
     std::thread accept_thread_;
     std::atomic<bool> is_running_{false};
 
-    // 연결된 StreamServer fd
+    // 연결된 ClientServer fd
     std::vector<int> client_fds_;
     std::mutex client_mutex_;
+
+    // 스레드 관리 (detach → join 전환)
+    std::map<int, std::thread> client_threads_;  // fd → thread
+    std::set<int> finished_fds_;                 // 종료된 fd 목록
+    std::mutex finished_mutex_;
 
     CameraListProvider get_camera_list_;
     DeviceStatusProvider get_device_status_;

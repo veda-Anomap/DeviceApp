@@ -15,15 +15,15 @@ struct DeviceInfo {
     std::string id;
     std::string ip;
     DeviceType type;
-    bool is_online;
+    bool is_online = false;
 
     // 타입별 데이터
     // HANWHA용 (rtsp://...)
     std::string source_url; 
 
     // SUB_PI용 (15001...)
-    int udp_listen_port;    
-    int command_socket_fd;
+    int udp_listen_port = 0;    
+    int command_socket_fd = -1;
 };
 
 // ======================== Qt 통신 프로토콜 ========================

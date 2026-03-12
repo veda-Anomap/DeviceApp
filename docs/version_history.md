@@ -2,7 +2,7 @@
 
 프로젝트: `DeviceApp` — 라즈베리파이 기반 카메라 관리 + Qt 클라이언트 중계 시스템  
 리포: `https://github.com/veda-Anomap/DeviceApp`  
-작성 기준: 2026-03-10
+작성 기준: 2026-03-12
 
 ---
 
@@ -22,7 +22,18 @@ Sub-Pi (AI카메라) ──UDP 비콘 + TCP 5000──┐
 
 ## 커밋 히스토리 (최신순)
 
-### 브랜치: `AN-96-motor-control` (현재 HEAD)
+### 브랜치: `main` (현재 HEAD)
+
+| 커밋 | 이슈 | 날짜 | 내용 |
+|------|------|------|------|
+| — | AN-102 | 2026-03-12 | **스레드 누수 해결 (InternalServer detach 제거, SubPiManager 좀비 정리)** |
+| `68367a8` | AN-101 | 2026-03-11 | **docs: 향후 개선 로드맵 추가 및 Docker 체크리스트 보완** |
+| `bcf36d5` | AN-100 | 2026-03-10 | **docs 폴더 추가 및 ARP 스캔 fping 유니캐스트 전환** |
+| `6ef5a87` | AN-99 | 2026-03-11 | **send/recv 안정성 개선 (partial write, Push 혼선, 락 분리)** |
+
+---
+
+### 브랜치: `AN-96-motor-control`
 
 | 커밋 | 이슈 | 날짜 | 내용 |
 |------|------|------|------|
@@ -96,6 +107,23 @@ Sub-Pi (AI카메라) ──UDP 비콘 + TCP 5000──┐
 ---
 
 ## 각 커밋 상세
+
+### AN-102: 스레드 누수 해결 및 방어적 코드 개선 (2026-03-12)
+**변경 파일**: `InternalServer.h/cpp`, `SubPiManager.h/cpp`, `QtCommServer.cpp`, `Common.h`
+
+- `InternalServer`: `std::thread::detach()` 제거 → `client_threads_` map 보관 + `cleanupFinishedThreads()`
+- `SubPiManager`: `listener_threads_` vector→map 전환, 종료된 리스너 `finished_ids_` 등록 + 주기적 정리
+- `stop()`에서 모든 스레드 안전 `join()` 후 종료
+- `QtCommServer::broadcastImage`: `client_roles_[fd]` → `find()` 변경 (map 자동 삽입 방지)
+- `Common.h`: `DeviceInfo` 멤버 기본값 추가 (`is_online=false`, `command_socket_fd=-1`)
+
+### AN-99: send/recv 안정성 개선 (2026-03-11)
+**변경 파일**: `common/NetUtil.h`(신규), `SubPiManager.cpp`, `InternalServer.cpp`, `DeviceManager.h/cpp`, `InternalClient.h/cpp`, `QtCommServer.cpp`, 헤더 4개
+
+- `sendExact()`/`recvExact()` 공통 inline 함수 도입 (4곳 중복 제거)
+- `InternalClient`: `waitForResponse()` + `dispatchPushEvent()` — 요청 대기 중 Push 이벤트 혼선 해결 (3초 타임아웃)
+- `DeviceManager::monitorLoop()`: 락 내 `checkTcpPort()` 블로킹 제거 (3단계 분리)
+- `DeviceManager::sendMotorCommand()`: `send_mutex_` 도입 (동시 send 경쟁 방지)
 
 ### AN-98: META 센서 데이터 즉시 전달 파이프라인 (2026-03-10)
 **변경 파일**: `SubPiManager.h/cpp`, `DeviceManager.h/cpp`, `DeviceController.cpp`, `InternalServer.h/cpp`, `InternalClient.h/cpp`, `ClientController.cpp`
