@@ -16,7 +16,7 @@ void DeviceController::run() {
 
     is_running_ = true;
 
-    // 1. 장치 발견 → RTSP 릴레이 자동 생성 연동
+    // 1. 장치 발견 → RTSP 릴레이 자동 생성
     device_mgr_.setOnDeviceRegistered([this](const DeviceInfo& info) {
         rtsp_server_.addRelayPath(info);
     });
@@ -24,6 +24,12 @@ void DeviceController::run() {
     // 1-2. 장치 연결 끊김 → RTSP 릴레이 제거
     device_mgr_.setOnDeviceRemoved([this](const std::string& device_id) {
         rtsp_server_.removeRelayPath(device_id);
+    });
+
+    // 1-3. 장치 변경(등록/제거/복구) → CAMERA/AVAILABLE Push (락 해제 후 호출됨)
+    device_mgr_.setOnDeviceChanged([this]() {
+        internal_server_.broadcastCameraList();
+        internal_server_.broadcastDeviceStatus();
     });
 
     // 1-3. AI 이벤트 → ClientServer로 전달

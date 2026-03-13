@@ -105,42 +105,11 @@ void InternalClient::connectionLoop() {
             current_fd_ = sock_fd;
         }
 
-        // 2. 연결 유지: 5초마다 카메라 요청 + 그 사이 AI 이벤트 수신
-        auto last_request = std::chrono::steady_clock::now();
-
+        // DeviceServer가 접속 즉시 CAMERA+AVAILABLE Push → 수신 대기
+        // 이후 AI/IMAGE/META/CAMERA/AVAILABLE 모두 Push로 수신
         while (is_running_) {
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_request).count();
-
-            // 5초 경과 시 카메라 리스트 요청
-            if (elapsed >= 5) {
-                json result = requestCameraList(sock_fd);
-                if (result.is_null()) {
-                    std::cout << "[InternalClient] DeviceServer disconnected. Reconnecting..." << std::endl;
-                    break;
-                }
-
-                // 카메라 캐시 즉시 갱신 (status 실패와 무관하게)
-                {
-                    std::lock_guard<std::mutex> lock(cache_mutex_);
-                    cached_cameras_ = result;
-                }
-
-                json status = requestDeviceStatus(sock_fd);
-                if (!status.is_null()) {
-                    std::lock_guard<std::mutex> lock(cache_mutex_);
-                    cached_device_status_ = status;
-                } else {
-                    std::cout << "[InternalClient] DeviceServer disconnected (status). Reconnecting..." << std::endl;
-                    break;
-                }
-
-                last_request = std::chrono::steady_clock::now();
-            }
-
-            // select로 1초 대기하며 AI 이벤트 확인
             if (!handleIncoming(sock_fd)) {
-                std::cout << "[InternalClient] DeviceServer disconnected (AI recv). Reconnecting..." << std::endl;
+                std::cout << "[InternalClient] DeviceServer disconnected. Reconnecting..." << std::endl;
                 break;
             }
         }
@@ -185,116 +154,66 @@ bool InternalClient::handleIncoming(int sock_fd) {
 // ======================== Push 이벤트 디스패치 ========================
 
 void InternalClient::dispatchPushEvent(const PacketHeader& header, const std::vector<char>& body_buf, int sock_fd) {
-    try {
-        json body = json::parse(std::string(body_buf.begin(), body_buf.end()));
+    std::string body_str(body_buf.begin(), body_buf.end());
 
-        if (header.type == MessageType::AI) {
-            std::cout << "[InternalClient] AI event received: " << body.dump() << std::endl;
-            if (on_ai_event_) {
-                on_ai_event_(body);
-            }
+    // CAMERA Push → 캐시 갱신
+    if (header.type == MessageType::CAMERA) {
+        try {
+            json cameras = json::parse(body_str);
+            std::lock_guard<std::mutex> lock(cache_mutex_);
+            cached_cameras_ = cameras;
+            std::cout << "[InternalClient] CAMERA cache updated (" << cameras.size() << " items)" << std::endl;
+        } catch (const json::parse_error& e) {
+            std::cerr << "[InternalClient] CAMERA JSON parse error: " << e.what() << std::endl;
         }
-        else if (header.type == MessageType::IMAGE) {
-            uint32_t jpeg_size = body.value("jpeg_size", 0u);
-            if (jpeg_size == 0 || jpeg_size > 10 * 1024 * 1024) {
-                std::cerr << "[InternalClient] Invalid jpeg_size: " << jpeg_size << std::endl;
-                return;
-            }
-
-            // JPEG 바이너리 수신
-            std::vector<char> jpeg_buf(jpeg_size);
-            if (!recvExact(sock_fd, jpeg_buf.data(), jpeg_size)) return;
-
-            std::cout << "[InternalClient] IMAGE received: frame " 
-                      << body.value("frame_index", -1) << "/" << body.value("total_frames", -1)
-                      << " (" << jpeg_size << " bytes)" << std::endl;
-
-            if (on_image_event_) {
-                on_image_event_(body, jpeg_buf);
-            }
-        }
-        else if (header.type == MessageType::META) {
-            std::cout << "[InternalClient] META sensor data received" << std::endl;
-            if (on_meta_event_) {
-                on_meta_event_(body);
-            }
-        }
-    } catch (...) {
-        std::cerr << "[InternalClient] JSON parse error in dispatchPushEvent." << std::endl;
-    }
-}
-
-// ======================== 응답 대기 (Push 이벤트 디스패치 + 타임아웃) ========================
-
-json InternalClient::waitForResponse(int sock_fd, MessageType expected_type) {
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-
-    while (is_running_) {
-        // 남은 시간 계산
-        auto now = std::chrono::steady_clock::now();
-        auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
-        if (remaining_ms <= 0) {
-            std::cerr << "[InternalClient] waitForResponse timeout (expected type: 0x"
-                      << std::hex << static_cast<int>(expected_type) << std::dec << ")" << std::endl;
-            return nullptr;  // 타임아웃
-        }
-
-        // select로 데이터 대기
-        fd_set read_fds;
-        FD_ZERO(&read_fds);
-        FD_SET(sock_fd, &read_fds);
-
-        struct timeval tv;
-        tv.tv_sec = remaining_ms / 1000;
-        tv.tv_usec = (remaining_ms % 1000) * 1000;
-
-        int ret = select(sock_fd + 1, &read_fds, nullptr, nullptr, &tv);
-        if (ret < 0) return nullptr;   // 에러
-        if (ret == 0) {
-            std::cerr << "[InternalClient] waitForResponse timeout (select)" << std::endl;
-            return nullptr;  // 타임아웃
-        }
-
-        // 헤더 수신
-        PacketHeader header;
-        if (!recvExact(sock_fd, &header, sizeof(header))) return nullptr;
-
-        uint32_t body_len = ntohl(header.body_length);
-        if (body_len == 0 || body_len > 1024 * 1024) return nullptr;
-
-        std::vector<char> buf(body_len);
-        if (!recvExact(sock_fd, buf.data(), body_len)) return nullptr;
-
-        // 기대한 타입이면 반환
-        if (header.type == expected_type) {
-            try {
-                return json::parse(std::string(buf.begin(), buf.end()));
-            } catch (...) {
-                return nullptr;
-            }
-        }
-
-        // Push 이벤트 → 콜백 디스패치 후 계속 대기
-        dispatchPushEvent(header, buf, sock_fd);
+        return;
     }
 
-    return nullptr;
-}
-
-// ======================== 카메라 리스트 / 디바이스 상태 요청 ========================
-
-json InternalClient::requestCameraList(int sock_fd) {
-    if (!sendMessage(sock_fd, MessageType::CAMERA, {})) {
-        return nullptr;
+    // AVAILABLE Push → 캐시 갱신
+    if (header.type == MessageType::AVAILABLE) {
+        try {
+            json status = json::parse(body_str);
+            std::lock_guard<std::mutex> lock(cache_mutex_);
+            cached_device_status_ = status;
+        } catch (const json::parse_error& e) {
+            std::cerr << "[InternalClient] AVAILABLE JSON parse error: " << e.what() << std::endl;
+        }
+        return;
     }
-    return waitForResponse(sock_fd, MessageType::CAMERA);
-}
 
-json InternalClient::requestDeviceStatus(int sock_fd) {
-    if (!sendMessage(sock_fd, MessageType::AVAILABLE, {})) {
-        return nullptr;
+    // AI 이벤트
+    if (header.type == MessageType::AI) {
+        try {
+            json event = json::parse(body_str);
+            if (on_ai_event_) on_ai_event_(event);
+        } catch (const json::parse_error& e) {
+            std::cerr << "[InternalClient] AI JSON parse error: " << e.what() << std::endl;
+        }
     }
-    return waitForResponse(sock_fd, MessageType::AVAILABLE);
+    // IMAGE 이벤트
+    else if (header.type == MessageType::IMAGE) {
+        try {
+            json meta = json::parse(body_str);
+            uint32_t jpeg_size = meta.value("jpeg_size", 0);
+            if (jpeg_size > 0 && jpeg_size < 10 * 1024 * 1024) {
+                std::vector<char> jpeg(jpeg_size);
+                if (recvExact(sock_fd, jpeg.data(), jpeg_size)) {
+                    if (on_image_event_) on_image_event_(meta, jpeg);
+                }
+            }
+        } catch (const json::parse_error& e) {
+            std::cerr << "[InternalClient] IMAGE JSON parse error: " << e.what() << std::endl;
+        }
+    }
+    // META 센서 데이터
+    else if (header.type == MessageType::META) {
+        try {
+            json sensor_data = json::parse(body_str);
+            if (on_meta_event_) on_meta_event_(sensor_data);
+        } catch (const json::parse_error& e) {
+            std::cerr << "[InternalClient] META JSON parse error: " << e.what() << std::endl;
+        }
+    }
 }
 
 bool InternalClient::sendMessage(int fd, MessageType type, const json& body) {

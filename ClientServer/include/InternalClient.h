@@ -47,19 +47,10 @@ private:
     // DeviceServer에 접속 시도 (재연결 포함)
     void connectionLoop();
 
-    // DeviceServer에 CAMERA 요청 보내고 응답 받기
-    json requestCameraList(int sock_fd);
-
-    // DeviceServer에서 오는 패킷 수신 (카메라 응답 + AI 이벤트)
+    // DeviceServer에서 오는 패킷 수신 (Push 이벤트 전용)
     bool handleIncoming(int sock_fd);
 
-    // DeviceServer에 AVAILABLE 요청 보내고 응답 받기
-    json requestDeviceStatus(int sock_fd);
-
-    // expected_type 응답이 올 때까지 대기 (Push 이벤트는 디스패치, 타임아웃 포함)
-    json waitForResponse(int sock_fd, MessageType expected_type);
-
-    // Push 이벤트(AI/IMAGE/META)를 콜백으로 디스패치
+    // Push 이벤트(AI/IMAGE/META/CAMERA/AVAILABLE)를 콜백/캐시로 디스패치
     void dispatchPushEvent(const PacketHeader& header, const std::vector<char>& body_buf, int sock_fd);
 
     bool sendMessage(int fd, MessageType type, const json& body);

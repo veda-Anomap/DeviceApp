@@ -196,6 +196,27 @@
 
 ---
 
+## 장치 타입 관리: 플랫 구조체 vs 상속 (현행 유지)
+
+**상태**: ✅ 현행 유지
+
+- **현재**: `DeviceInfo` 단일 구조체 + 타입별 `if/else` 분기. 탐색은 `SubPiManager`(Sub-Pi)와 `OnvifScanner`(한화)로 이미 분리됨.
+- **대안**: `Device` 부모 클래스 + `SubPiDevice`/`HanwhaDevice` 상속, 가상 함수(`isAlive()`, `getRtspUrl()`)로 다형성 처리
+- **현행 유지 이유**: 장치 타입이 2종뿐이고, 탐색 로직은 이미 별도 클래스로 분리됨. 상속 도입 시 `unique_ptr<Device>` 소유권 관리 복잡도만 증가.
+- **전환 시점**: 장치 타입이 3종 이상으로 확장될 때 (예: USB 카메라, 일반 RTSP IP캠)
+
+---
+
+## 내부 통신: Request/Response → Push 전환 (AN-103)
+
+**상태**: ✅ 전환 완료
+
+- **이전**: `InternalClient`가 5초마다 `requestCameraList()` → `requestDeviceStatus()` 요청/응답. Push 이벤트(AI/IMAGE/META)가 같은 소켓에서 혼선 → `waitForResponse()` 필요.
+- **전환 후**: `DeviceServer`가 접속 시 환영 Push + 장치 변경 시 자동 Push. `InternalClient`는 순수 수신자.
+- **이점**: 패킷 수 절반, `waitForResponse` 제거, Sub-Pi 리스너와 동일한 패턴, 코드 ~100줄 삭제.
+
+---
+
 ## Docker Compose 전환 (진행 예정)
 
 **상태**: 📋 계획 중

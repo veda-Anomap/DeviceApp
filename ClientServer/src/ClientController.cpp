@@ -46,32 +46,26 @@ void ClientController::run() {
 
     std::cout << "[ClientServer] Running. Press Ctrl+C to stop." << std::endl;
 
-    // 메인 스레드: 주기적으로 카메라 리스트 브로드캐스트
-    int tick = 0;
+    // 메인 스레드: 5초마다 카메라 리스트 + AVAILABLE 브로드캐스트
     while (is_running_) {
-        if (tick % 5 == 0) {
-            json cameras = internal_client_.getCameraList();
-            qt_server_.broadcastToRole(MessageType::CAMERA, cameras, "user");
+        json cameras = internal_client_.getCameraList();
+        qt_server_.broadcastToRole(MessageType::CAMERA, cameras, "user");
 
-            // AVAILABLE: user는 디바이스 상태만, admin은 서버+디바이스
-            json device_status = internal_client_.getDeviceStatus();
+        // AVAILABLE: user는 디바이스 상태만, admin은 서버+디바이스
+        json device_status = internal_client_.getDeviceStatus();
 
-            json user_avail;
-            user_avail["devices"] = device_status;
+        json user_avail;
+        user_avail["devices"] = device_status;
 
-            json admin_avail;
-            admin_avail["server"] = sys_monitor_.getStatus();
-            admin_avail["devices"] = device_status;
+        json admin_avail;
+        admin_avail["server"] = sys_monitor_.getStatus();
+        admin_avail["devices"] = device_status;
 
-            qt_server_.broadcastByRole(MessageType::AVAILABLE, user_avail, admin_avail);
-        }
+        qt_server_.broadcastByRole(MessageType::AVAILABLE, user_avail, admin_avail);
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        tick++;
-
-        // 1초 대기 (stop() 시 즉시 깨어남)
+        // 5초 대기 (stop() 시 즉시 깨어남)
         std::unique_lock<std::mutex> lock(stop_mutex_);
-        stop_cv_.wait_for(lock, std::chrono::milliseconds(900), [this] { return !is_running_.load(); });
+        stop_cv_.wait_for(lock, std::chrono::seconds(5), [this] { return !is_running_.load(); });
     }
 }
 

@@ -23,26 +23,32 @@ DeviceManager::DeviceManager() : is_discovering_(false) {
 
     // SubPiManager 콜백 연결: 장치 발견 시 → 신규 등록 또는 오프라인 복구
     subpi_mgr_.setOnDeviceFound([this](const DeviceInfo& info, int tcp_fd) {
-        std::lock_guard<std::mutex> lock(device_mutex_);
-        if (devices_.count(info.id)) {
-            // 이미 등록됨 → 오프라인이면 복구
-            DeviceInfo& existing = devices_[info.id];
-            if (!existing.is_online) {
-                existing.is_online = true;
-                existing.command_socket_fd = info.command_socket_fd;
-                existing.udp_listen_port = info.udp_listen_port;
-                std::cout << "[Monitor] Sub-Pi RECOVERED: " << info.id << std::endl;
-                if (on_device_registered_) {
-                    on_device_registered_(existing);
+        DeviceInfo registered_info;
+        bool changed = false;
+        {
+            std::lock_guard<std::mutex> lock(device_mutex_);
+            if (devices_.count(info.id)) {
+                DeviceInfo& existing = devices_[info.id];
+                if (!existing.is_online) {
+                    existing.is_online = true;
+                    existing.command_socket_fd = info.command_socket_fd;
+                    existing.udp_listen_port = info.udp_listen_port;
+                    std::cout << "[Monitor] Sub-Pi RECOVERED: " << info.id << std::endl;
+                    registered_info = existing;
+                    changed = true;
                 }
+            } else {
+                devices_[info.id] = info;
+                std::cout << "Beacon: Registered Sub-Pi at " << info.ip 
+                          << " (Port: " << info.udp_listen_port << ")" << std::endl;
+                registered_info = info;
+                changed = true;
             }
-            return;
         }
-        devices_[info.id] = info;
-        std::cout << "Beacon: Registered Sub-Pi at " << info.ip 
-                  << " (Port: " << info.udp_listen_port << ")" << std::endl;
-        if (on_device_registered_) {
-            on_device_registered_(info);
+        // 락 해제 후 콜백 호출 (데드락 방지)
+        if (changed) {
+            if (on_device_registered_) on_device_registered_(registered_info);
+            if (on_device_changed_) on_device_changed_();
         }
     });
 
@@ -82,23 +88,29 @@ DeviceManager::DeviceManager() : is_discovering_(false) {
 
     // OnvifScanner 콜백 연결: 카메라 발견 시 → 신규 등록 또는 오프라인 복구
     onvif_scanner_.setOnDeviceFound([this](const DeviceInfo& info) {
-        std::lock_guard<std::mutex> lock(device_mutex_);
-        if (devices_.count(info.id)) {
-            // 이미 등록됨 → 오프라인이면 복구
-            DeviceInfo& existing = devices_[info.id];
-            if (!existing.is_online) {
-                existing.is_online = true;
-                std::cout << "[Monitor] Hanwha RECOVERED: " << info.id << std::endl;
-                if (on_device_registered_) {
-                    on_device_registered_(existing);
+        DeviceInfo registered_info;
+        bool changed = false;
+        {
+            std::lock_guard<std::mutex> lock(device_mutex_);
+            if (devices_.count(info.id)) {
+                DeviceInfo& existing = devices_[info.id];
+                if (!existing.is_online) {
+                    existing.is_online = true;
+                    std::cout << "[Monitor] Hanwha RECOVERED: " << info.id << std::endl;
+                    registered_info = existing;
+                    changed = true;
                 }
+            } else {
+                devices_[info.id] = info;
+                std::cout << "ONVIF: Registered Hanwha Camera: " << info.id << std::endl;
+                registered_info = info;
+                changed = true;
             }
-            return;
         }
-        devices_[info.id] = info;
-        std::cout << "ONVIF: Registered Hanwha Camera: " << info.id << std::endl;
-        if (on_device_registered_) {
-            on_device_registered_(info);
+        // 락 해제 후 콜백 호출 (데드락 방지)
+        if (changed) {
+            if (on_device_registered_) on_device_registered_(registered_info);
+            if (on_device_changed_) on_device_changed_();
         }
     });
 }
@@ -208,7 +220,7 @@ void DeviceManager::monitorLoop() {
     std::cout << "[Monitor] Started." << std::endl;
 
     while (is_discovering_) {
-        std::this_thread::sleep_for(std::chrono::seconds(3));
+        std::this_thread::sleep_for(std::chrono::seconds(5));
         if (!is_discovering_) break;
 
         // ========== [1단계] 락 안에서 체크 대상만 추출 (네트워크 I/O 없이) ==========
@@ -276,35 +288,47 @@ void DeviceManager::monitorLoop() {
                 }
                 if (!ip_check_cache[target.ip]) {
                     std::cout << "[Monitor] Hanwha offline (TCP 554 failed): " << target.id << std::endl;
-                    went_offline.push_back(target.id);
+                went_offline.push_back(target.id);
                 }
             }
         }
 
-        // ========== [3단계] 락 잡고 결과 반영 ==========
+        // ========== [3단계] 오프라인 장치 반영 + 정리 ==========
         if (!went_offline.empty()) {
-            std::lock_guard<std::mutex> lock(device_mutex_);
-            for (const auto& id : went_offline) {
-                auto it = devices_.find(id);
-                if (it == devices_.end()) continue;
+            std::vector<std::string> removed_ids;
+            {
+                std::lock_guard<std::mutex> lock(device_mutex_);
+                for (const auto& id : went_offline) {
+                    auto it = devices_.find(id);
+                    if (it == devices_.end()) continue;
 
-                DeviceInfo& info = it->second;
-                if (!info.is_online) continue;  // 이미 다른 경로로 오프라인 처리됨
+                    DeviceInfo& info = it->second;
+                    if (!info.is_online) continue;  // 이미 다른 경로로 오프라인 처리됨
 
-                info.is_online = false;
+                    info.is_online = false;
 
-                // Sub-Pi: 소켓 정리
-                if (info.type == DeviceType::SUB_PI && info.command_socket_fd != -1) {
-                    close(info.command_socket_fd);
-                    info.command_socket_fd = -1;
-                }
+                    // Sub-Pi: 소켓 정리
+                    if (info.type == DeviceType::SUB_PI && info.command_socket_fd != -1) {
+                        close(info.command_socket_fd);
+                        info.command_socket_fd = -1;
+                    }
 
-                // RTSP 릴레이 정리 (Sub-Pi만 해당)
-                if (on_device_removed_) {
-                    on_device_removed_(id);
+                    removed_ids.push_back(id);
                 }
             }
-            std::cout << "[Monitor] " << went_offline.size() << " device(s) went offline." << std::endl;
+            // 락 해제 후 콜백 호출 (데드락 방지)
+            for (const auto& id : removed_ids) {
+                if (on_device_removed_) on_device_removed_(id);
+            }
+            if (!removed_ids.empty() && on_device_changed_) {
+                on_device_changed_();
+            }
+            std::cout << "[Monitor] " << removed_ids.size() << " device(s) went offline." << std::endl;
+        }
+
+        // 매 사이클마다 CAMERA/AVAILABLE Push (상태 갱신)
+        if (on_device_changed_) {
+            on_device_changed_();
         }
     }
 }

@@ -129,6 +129,17 @@ void InternalServer::acceptLoop() {
 }
 
 void InternalServer::clientHandler(int client_fd) {
+    // 환영 Push: 접속 즉시 CAMERA + AVAILABLE 전송
+    if (get_camera_list_) {
+        json camera_list = get_camera_list_();
+        sendMessage(client_fd, MessageType::CAMERA, camera_list);
+        std::cout << "[Internal] Welcome Push: CAMERA sent (fd: " << client_fd << ")" << std::endl;
+    }
+    if (get_device_status_) {
+        json device_status = get_device_status_();
+        sendMessage(client_fd, MessageType::AVAILABLE, device_status);
+        std::cout << "[Internal] Welcome Push: AVAILABLE sent (fd: " << client_fd << ")" << std::endl;
+    }
     while (is_running_) {
         // 헤더 수신
         PacketHeader header;
@@ -234,6 +245,25 @@ void InternalServer::broadcastMetaEvent(const json& sensor_data) {
     std::lock_guard<std::mutex> lock(client_mutex_);
     for (int fd : client_fds_) {
         sendMessage(fd, MessageType::META, sensor_data);
+    }
+}
+
+void InternalServer::broadcastCameraList() {
+    if (!get_camera_list_) return;
+    json camera_list = get_camera_list_();
+    std::lock_guard<std::mutex> lock(client_mutex_);
+    for (int fd : client_fds_) {
+        sendMessage(fd, MessageType::CAMERA, camera_list);
+    }
+    std::cout << "[Internal] Broadcasted CAMERA list to " << client_fds_.size() << " client(s)." << std::endl;
+}
+
+void InternalServer::broadcastDeviceStatus() {
+    if (!get_device_status_) return;
+    json device_status = get_device_status_();
+    std::lock_guard<std::mutex> lock(client_mutex_);
+    for (int fd : client_fds_) {
+        sendMessage(fd, MessageType::AVAILABLE, device_status);
     }
 }
 

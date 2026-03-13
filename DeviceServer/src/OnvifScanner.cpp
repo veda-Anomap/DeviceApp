@@ -108,8 +108,8 @@ void OnvifScanner::runScan() {
                     continue;  // 이미 등록됨 → curl 스킵
                 }
 
-                // SUNAPI 2회 실패한 IP는 재시도 안 함
-                if (sunapi_fail_count_[cam_ip] >= 2) {
+                // SUNAPI 1회 실패한 IP는 재시도 안 함
+                if (sunapi_fail_count_[cam_ip] >= 1) {
                     continue;
                 }
 
@@ -118,8 +118,8 @@ void OnvifScanner::runScan() {
                 std::vector<std::string> urls = getRtspUrls(cam_ip);
                 if (urls.empty()) {
                     sunapi_fail_count_[cam_ip]++;
-                    if (sunapi_fail_count_[cam_ip] >= 2) {
-                        std::cout << "[ONVIF] SUNAPI 2회 실패 → " << cam_ip << " 재시도 차단" << std::endl;
+                    if (sunapi_fail_count_[cam_ip] >= 1) {
+                        std::cout << "[ONVIF] SUNAPI 1회 실패 → " << cam_ip << " 재시도 차단" << std::endl;
                     }
                     continue;
                 }
@@ -257,8 +257,8 @@ void OnvifScanner::arpFallbackScan() {
             continue;
         }
 
-        // SUNAPI 2회 실패한 IP는 재시도 안 함
-        if (sunapi_fail_count_[ip] >= 2) {
+        // SUNAPI 1회 실패한 IP는 재시도 안 함
+        if (sunapi_fail_count_[ip] >= 1) {
             continue;
         }
 
@@ -267,8 +267,8 @@ void OnvifScanner::arpFallbackScan() {
         std::vector<std::string> urls = getRtspUrls(ip);
         if (urls.empty()) {
             sunapi_fail_count_[ip]++;
-            if (sunapi_fail_count_[ip] >= 2) {
-                std::cout << "[ARP Scan] SUNAPI 2회 실패 → " << ip << " 재시도 차단" << std::endl;
+            if (sunapi_fail_count_[ip] >= 1) {
+                std::cout << "[ARP Scan] SUNAPI 1회 실패 → " << ip << " 재시도 차단" << std::endl;
             }
             continue;
         }

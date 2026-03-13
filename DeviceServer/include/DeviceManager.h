@@ -47,6 +47,10 @@ public:
     using MetaEventCallback = std::function<void(const std::string& device_id, const json& sensor_data)>;
     void setOnMetaEvent(MetaEventCallback cb) { on_meta_event_ = cb; }
 
+    // 장치 변경(등록/제거/복구) 시 호출 — 락 해제 후 호출됨 (데드락 방지)
+    using DeviceChangedCallback = std::function<void()>;
+    void setOnDeviceChanged(DeviceChangedCallback cb) { on_device_changed_ = cb; }
+
 private:
     void monitorLoop();
     bool checkTcpPort(const std::string& ip, int port, int timeout_sec = 2);
@@ -70,6 +74,7 @@ private:
     // 외부 콜백
     DeviceCallback on_device_registered_;
     DeviceRemovedCallback on_device_removed_;
+    DeviceChangedCallback on_device_changed_;
     AiEventCallback on_ai_event_;
     ImageEventCallback on_image_event_;
     MetaEventCallback on_meta_event_;

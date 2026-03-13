@@ -26,7 +26,9 @@ Sub-Pi (AI카메라) ──UDP 비콘 + TCP 5000──┐
 
 | 커밋 | 이슈 | 날짜 | 내용 |
 |------|------|------|------|
-| — | AN-102 | 2026-03-12 | **스레드 누수 해결 (InternalServer detach 제거, SubPiManager 좀비 정리)** |
+| — | AN-104 | 2026-03-13 | **SUNAPI 실패 차단 임계값 2회→1회 변경** |
+| — | AN-103 | 2026-03-13 | **InternalClient Request/Response → Push 전환 + 데드락 수정** |
+| — | AN-102 | 2026-03-12 | **스레드 누수 해결 및 방어적 코드 개선** |
 | `68367a8` | AN-101 | 2026-03-11 | **docs: 향후 개선 로드맵 추가 및 Docker 체크리스트 보완** |
 | `bcf36d5` | AN-100 | 2026-03-10 | **docs 폴더 추가 및 ARP 스캔 fping 유니캐스트 전환** |
 | `6ef5a87` | AN-99 | 2026-03-11 | **send/recv 안정성 개선 (partial write, Push 혼선, 락 분리)** |
@@ -107,6 +109,25 @@ Sub-Pi (AI카메라) ──UDP 비콘 + TCP 5000──┐
 ---
 
 ## 각 커밋 상세
+
+### AN-104: SUNAPI 실패 차단 임계값 변경 (2026-03-13)
+**변경 파일**: `OnvifScanner.cpp`
+
+- SUNAPI 실패 차단 임계값 `>= 2` → `>= 1` (4곳)
+- 1회 실패 시 즉시 해당 IP 재시도 차단 (다른 팀 카메라 잠금 방지 강화)
+
+### AN-103: InternalClient Request/Response → Push 전환 + 데드락 수정 (2026-03-13)
+**변경 파일**: `InternalServer.h/cpp`, `DeviceController.cpp`, `DeviceManager.h/cpp`, `InternalClient.h/cpp`, `ClientController.cpp`
+
+- `InternalServer`: 새 클라이언트 접속 시 CAMERA+AVAILABLE 환영 Push 즉시 전송
+- `broadcastCameraList()`/`broadcastDeviceStatus()` 신규 — 장치 변경 시 모든 ClientServer에 Push
+- `DeviceController`: 장치 등록/제거 콜백에서 자동 브로드캐스트
+- `InternalClient`: `waitForResponse`, `requestCameraList`, `requestDeviceStatus` 완전 제거
+- `connectionLoop`: 5초 요청 루프 → 순수 `handleIncoming()` 수신 루프
+- `dispatchPushEvent`: CAMERA/AVAILABLE Push 수신 시 캐시 자동 갱신
+- `DeviceManager`: 모든 콜백(`on_device_registered_`, `on_device_removed_`)을 `device_mutex_` 해제 후 호출하도록 리팩토링 (데드락 방지)
+- `on_device_changed_` 콜백 신규 — 장치 변경 시 락 해제 후 CAMERA/AVAILABLE Push
+- `ClientController`: 폴링 루프 tick 카운터 제거, `wait_for(5초)` 단순화
 
 ### AN-102: 스레드 누수 해결 및 방어적 코드 개선 (2026-03-12)
 **변경 파일**: `InternalServer.h/cpp`, `SubPiManager.h/cpp`, `QtCommServer.cpp`, `Common.h`

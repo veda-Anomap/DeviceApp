@@ -38,6 +38,10 @@ public:
     // 연결된 모든 ClientServer에 META 센서 데이터 전송
     void broadcastMetaEvent(const json& sensor_data);
 
+    // 장치 변경 시 CAMERA/AVAILABLE Push
+    void broadcastCameraList();
+    void broadcastDeviceStatus();
+
     // 모터 제어 명령 수신 콜백
     using DeviceCommandCallback = std::function<void(const json& body)>;
     void setOnDeviceCommand(DeviceCommandCallback cb) { on_device_command_ = cb; }
