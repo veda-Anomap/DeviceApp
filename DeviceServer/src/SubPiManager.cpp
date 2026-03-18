@@ -211,6 +211,10 @@ void SubPiManager::subPiListener(std::string device_id, int socket_fd) {
             try {
                 json event = json::parse(body_str);
                 event["device_id"] = device_id;
+                
+                // IP 추출 및 추가 ("SubPi_192.168.0.43" -> "192.168.0.43")
+                std::string ip = device_id.substr(6);
+                event["ip"] = ip;
 
                 std::cout << "[AI Listener] Event from " << device_id << ": " << event.dump() << std::endl;
 
@@ -232,6 +236,10 @@ void SubPiManager::subPiListener(std::string device_id, int socket_fd) {
             try {
                 json meta = json::parse(body_str);
                 meta["device_id"] = device_id;
+                
+                // IP 추출 및 추가 ("SubPi_192.168.0.43" -> "192.168.0.43")
+                std::string ip = device_id.substr(6);
+                meta["ip"] = ip;
 
                 uint32_t jpeg_size = meta.value("jpeg_size", 0u);
                 if (jpeg_size == 0 || jpeg_size > 10 * 1024 * 1024) { // 최대 10MB
@@ -286,6 +294,10 @@ void SubPiManager::subPiListener(std::string device_id, int socket_fd) {
             try {
                 json sensor_data = json::parse(body_str);
                 sensor_data["device_id"] = device_id;
+                
+                // IP 추출 및 추가 ("SubPi_192.168.0.43" -> "192.168.0.43")
+                std::string ip = device_id.substr(6);
+                sensor_data["ip"] = ip;
 
                 std::cout << "[AI Listener] META from " << device_id
                           << ": " << sensor_data.value("sensor_batch", json::array()).size()

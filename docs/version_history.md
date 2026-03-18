@@ -110,11 +110,11 @@ Sub-Pi (AI카메라) ──UDP 비콘 + TCP 5000──┐
 
 ## 각 커밋 상세
 
-### AN-104: SUNAPI 실패 차단 임계값 변경 (2026-03-13)
-**변경 파일**: `OnvifScanner.cpp`
+### AN-104: 패킷 IP 주입 및 SUNAPI 프로필 유연화 (2026-03-18)
+**변경 파일**: `SubPiManager.cpp`, `OnvifScanner.h/cpp`
 
-- SUNAPI 실패 차단 임계값 `>= 2` → `>= 1` (4곳)
-- 1회 실패 시 즉시 해당 IP 재시도 차단 (다른 팀 카메라 잠금 방지 강화)
+- `SubPiManager`: AI(0x06), IMAGE(0x0a), META(0x09) 패킷 파싱 시 `device_id`에서 IP를 추출하여 `"ip"` 필드로 명시적 주입 (Qt에서 파싱 용이)
+- `OnvifScanner`: 하드코딩된 SUNAPI `Profile=2`를 `sunapi_profile_` 멤버 변수로 교체하여 외부(DeviceManager 등)에서 동적 설정 가능하도록 개선
 
 ### AN-103: InternalClient Request/Response → Push 전환 + 데드락 수정 (2026-03-13)
 **변경 파일**: `InternalServer.h/cpp`, `DeviceController.cpp`, `DeviceManager.h/cpp`, `InternalClient.h/cpp`, `ClientController.cpp`

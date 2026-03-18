@@ -164,7 +164,7 @@ std::vector<std::string> OnvifScanner::getRtspUrls(const std::string& ip) {
     
     for (int ch = 0; ch < 4; ++ch) {
         std::string cmd = "curl --digest -u admin:5hanwha! -s --connect-timeout 2 "
-                      "\"http://" + ip + "/stw-cgi/media.cgi?msubmenu=streamuri&action=view&Channel=" + std::to_string(ch) + "&Profile=2&MediaType=Live&Mode=Full&StreamType=RTPUnicast&TransportProtocol=TCP&RTSPOverHTTP=False\" "
+                      "\"http://" + ip + "/stw-cgi/media.cgi?msubmenu=streamuri&action=view&Channel=" + std::to_string(ch) + "&Profile=" + std::to_string(sunapi_profile_) + "&MediaType=Live&Mode=Full&StreamType=RTPUnicast&TransportProtocol=TCP&RTSPOverHTTP=False\" "
                       "| grep \"URI\" | cut -d'=' -f2";
 
         FILE* pipe = popen(cmd.c_str(), "r");
@@ -208,7 +208,7 @@ std::vector<std::string> OnvifScanner::getRtspUrls(const std::string& ip) {
 
 std::string OnvifScanner::getSingleRtspUrl(const std::string& ip) {
     std::string cmd = "curl --digest -u admin:5hanwha! -s --connect-timeout 2 "
-                      "\"http://" + ip + "/stw-cgi/media.cgi?msubmenu=streamuri&action=view&Profile=2&MediaType=Live&Mode=Full&StreamType=RTPUnicast&TransportProtocol=TCP&RTSPOverHTTP=False\" "
+                      "\"http://" + ip + "/stw-cgi/media.cgi?msubmenu=streamuri&action=view&Profile=" + std::to_string(sunapi_profile_) + "&MediaType=Live&Mode=Full&StreamType=RTPUnicast&TransportProtocol=TCP&RTSPOverHTTP=False\" "
                       "| grep \"URI\" | cut -d'=' -f2";
 
     FILE* pipe = popen(cmd.c_str(), "r");

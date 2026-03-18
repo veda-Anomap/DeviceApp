@@ -61,6 +61,7 @@ Sub-Pi의 STM32 센서에서 수집한 환경 데이터를 5초 주기로 전달
 ```json
 {
   "device_id": "SubPi_192.168.0.43",
+  "ip": "192.168.0.43",
   "sensor_batch": [
     {"tmp": 23.92, "hum": 34.26, "light": 200.0, "tilt": 90.0, "dir": "R", "ts": 1773104377},
     {"tmp": 23.92, "hum": 34.61, "light": 201.0, "tilt": 90.0, "dir": "R", "ts": 1773104378}
@@ -71,6 +72,7 @@ Sub-Pi의 STM32 센서에서 수집한 환경 데이터를 5초 주기로 전달
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `device_id` | string | Sub-Pi 식별자 (서버가 추가) |
+| `ip` | string | Sub-Pi IP (서버가 추가) |
 | `sensor_batch` | array | 센서 샘플 배열 (5개/배치) |
 | `tmp` | float | 온도 (°C) |
 | `hum` | float | 습도 (%) |
@@ -346,6 +348,7 @@ Sub-Pi가 낙상 등 AI 이벤트를 감지하면 아래 JSON을 전송합니다
 ```json
 {
     "device_id": "SubPi_192.168.0.43",
+    "ip": "192.168.0.43",
     "event": "fall_detected",
     "confidence": 0.92,
     "track_id": 7,
@@ -356,6 +359,7 @@ Sub-Pi가 낙상 등 AI 이벤트를 감지하면 아래 JSON을 전송합니다
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `device_id` | string | Sub-Pi 식별자 (서버가 추가) |
+| `ip` | string | Sub-Pi IP (서버가 추가) |
 | `event` | string | 이벤트 유형 (예: `"fall_detected"`) |
 | `confidence` | float | AI 감지 신뢰도 (0.0 ~ 1.0) |
 | `track_id` | int | 추적 대상 ID |
@@ -384,6 +388,7 @@ Sub-Pi가 낙상 등 AI 이벤트를 감지하면 아래 JSON을 전송합니다
 ```json
 {
     "device_id": "SubPi_192.168.0.43",
+    "ip": "192.168.0.43",
     "track_id": 7,
     "frame_index": 0,
     "total_frames": 300,
@@ -395,6 +400,7 @@ Sub-Pi가 낙상 등 AI 이벤트를 감지하면 아래 JSON을 전송합니다
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `device_id` | string | SubCam 장치 ID |
+| `ip` | string | SubCam IP 주소 (서버가 추가) |
 | `track_id` | int | 추적 대상 ID |
 | `frame_index` | int | 현재 프레임 번호 (0부터 시작) |
 | `total_frames` | int | 전체 프레임 수 |
