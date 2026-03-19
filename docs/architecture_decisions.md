@@ -1,7 +1,27 @@
 # DeviceApp 설계 결정 기록 (Architecture Decision Records)
 
 프로젝트 개발 과정에서 내린 주요 설계 결정과 그 배경을 기록합니다.  
-작성 기준: 2026-03-10
+작성 기준: 2026-03-19
+
+---
+
+## GStreamer RTSP 릴레이 파이프라인 개선 (2026-03-19)
+
+**상태**: 채택됨 · **관련 이슈**: AN-105
+
+- **문제**: UDP 수신 버퍼 부족으로 I-Frame burst 시 패킷 유실 → 화면 깨짐. Caps negotiation 지연으로 최초 접속 시 수초 블랙스크린. 수신/송신 스레드 미분리로 역류 압력 발생.
+- **결정**: 파이프라인에 `buffer-size=2097152`(2MB), `queue` 엘리먼트, 명시적 caps(`media=video, clock-rate=90000, encoding-name=H264`) 추가
+- **추가 수정**: `stop()`에서 `mounts_`/`server_` GObject `unref` 추가, `addRelayPath()`에 `removeRelayPath()` 후 재등록 방어 코드 삽입
+
+---
+
+## Sub-Pi 이벤트 패킷 IP 필드 주입 (2026-03-18)
+
+**상태**: 채택됨 · **관련 이슈**: AN-104
+
+- **문제**: AI/IMAGE/META 패킷에 `device_id`(`SubPi_192.168.0.43`)만 있고 `ip` 필드가 없어 Qt에서 파싱 불편
+- **결정**: `SubPiManager`에서 수신 시 `device_id`에서 IP를 추출하여 `"ip"` 필드를 명시적으로 주입
+- **근거**: ClientServer는 패스스루만 하므로 DeviceServer에서 주입하는 것이 적합. `device_id` 포맷(`SubPi_` 접두어)이 고정되어 있으므로 `substr(6)`으로 안전 추출 가능
 
 ---
 

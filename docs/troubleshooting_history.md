@@ -216,12 +216,25 @@ ERROR: no factory for path /subpi_192.168.0.43  ← 요청 경로 (소문자!)
 
 ---
 
+## Issue 19: RtspServer GObject 누수 + 중복 등록 + 파이프라인 미세조정 (AN-105) ✅
+
+- **증상**: 외부 코드 리뷰에서 지적. 장시간 운용 시 잠재적 메모리 누수, Sub-Pi 재연결 시 좀비 파이프라인, UDP 패킷 유실로 화면 깨짐 가능성.
+- **원인**:
+  1. `gst_rtsp_server_get_mount_points()`가 refcount를 올려 반환 → 소멸자에서 `g_object_unref()` 미호출 → GObject 메모리 누수
+  2. `addRelayPath()`에 중복 등록 방어 없음 → 같은 path에 factory 덮어씌움 → 이전 파이프라인 좀비화
+  3. `udpsrc`에 buffer-size 미지정, caps 불완전, queue 미삽입
+- **해결**:
+  - `stop()`에서 `mounts_`/`server_` `g_object_unref()` 추가
+  - `addRelayPath()` 진입 시 `removeRelayPath()` 선호출
+  - 파이프라인: `buffer-size=2097152`, 명시적 caps(`media=video, clock-rate=90000, encoding-name=H264`), `queue` 삽입
+
+---
+
 ## 미해결 항목 요약
 
 | # | 이슈 | 상태 | 비고 |
 |---|------|------|------|
 | 10 | `is_active` 기반 계정 관리 | ⬜ DB 컬럼만 추가 | 로그인 쿼리 조건, 삭제/복구 API 미구현 |
-| 15 | Sub-Pi 복구 시 RTSP 503 | 🔶 보류 | 현재 미재현. 재발 시 경로 소문자 통일 + 프리롤 타임아웃 연장 검토 |
 | — | Docker Compose 전환 | 📋 진행 예정 | `network_mode: host` 필수, 빌드/배포/자동 재시작 자동화 목적 |
 
 ---
