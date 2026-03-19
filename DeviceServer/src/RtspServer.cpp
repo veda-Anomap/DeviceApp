@@ -40,6 +40,16 @@ void RtspServer::stop() {
         g_main_loop_unref(loop_);
         loop_ = nullptr;
     }
+
+    // GObject 리소스 정리 (레퍼런스 카운트 누수 방지)
+    if (mounts_) {
+        g_object_unref(mounts_);
+        mounts_ = nullptr;
+    }
+    if (server_) {
+        g_object_unref(server_);
+        server_ = nullptr;
+    }
 }
 
 void RtspServer::runMainLoop() {
@@ -60,23 +70,32 @@ RtspServer::~RtspServer() {
 }
 
 void RtspServer::addRelayPath(const DeviceInfo& info) {
-    if (!mounts_) return; // (아까 세그폴트 방지용)
+    if (!mounts_) return;
 
     // 한화 카메라는 릴레이 안 함! 서브 파이만 처리
     if (info.type != DeviceType::SUB_PI) {
         return; 
     }
 
-    // 오직 서브 파이용 파이프라인(udpsrc)만 남깁니다.
+    // 중복 등록 방어: 기존 factory가 있으면 먼저 제거 (좀비 파이프라인 방지)
+    removeRelayPath(info.id);
+
+    // 파이프라인 구성:
+    //   buffer-size=2097152  : UDP 수신 버퍼 2MB (I-Frame burst 패킷 유실 방지)
+    //   명시적 caps           : caps negotiation 비용 제거 (즉시 디코딩 시작)
+    //   queue                : 수신/송신 스레드 분리 (역류 압력 차단)
     std::string pipeline_str = 
         "( udpsrc port=" + std::to_string(info.udp_listen_port) + 
-        " caps=\"application/x-rtp, payload=96\" ! "
-        "rtph264depay ! h264parse ! rtph264pay name=pay0 pt=96 config-interval=1 )";
+        " buffer-size=2097152"
+        " caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000,"
+        " encoding-name=(string)H264, payload=96\" ! "
+        "rtph264depay ! queue ! "
+        "h264parse ! rtph264pay name=pay0 pt=96 config-interval=1 )";
 
     GstRTSPMediaFactory* factory = gst_rtsp_media_factory_new();
     gst_rtsp_media_factory_set_launch(factory, pipeline_str.c_str());
     gst_rtsp_media_factory_set_shared(factory, TRUE);
-    // 💡 핵심: 클라이언트가 0명이 되어도 파이프라인을 멈추지 않음 (UDP 포트 선점 유지 -> 503 방지)
+    // 클라이언트가 0명이 되어도 파이프라인을 멈추지 않음 (UDP 포트 선점 유지 → 503 방지)
     gst_rtsp_media_factory_set_suspend_mode(factory, GST_RTSP_SUSPEND_MODE_NONE);
 
     std::string path = "/" + info.id;

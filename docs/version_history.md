@@ -110,6 +110,15 @@ Sub-Pi (AI카메라) ──UDP 비콘 + TCP 5000──┐
 
 ## 각 커밋 상세
 
+### AN-105: RtspServer 파이프라인 개선 및 리소스 관리 수정 (2026-03-19)
+**변경 파일**: `RtspServer.cpp`
+
+- 파이프라인 `buffer-size=2097152` 추가 (I-Frame burst 시 UDP 패킷 유실 방지)
+- 파이프라인 `queue` 엘리먼트 삽입 (수신/송신 스레드 분리로 역류 압력 차단)
+- 파이프라인 명시적 caps 지정 (`media=video, clock-rate=90000, encoding-name=H264`) → caps negotiation 비용 제거
+- `stop()`에서 `mounts_`/`server_` GObject unref 추가 (레퍼런스 카운트 누수 수정)
+- `addRelayPath()`에 중복 등록 방어 추가 (`removeRelayPath()` 후 등록 → 좀비 파이프라인 방지)
+
 ### AN-104: 패킷 IP 주입 및 SUNAPI 프로필 유연화 (2026-03-18)
 **변경 파일**: `SubPiManager.cpp`, `OnvifScanner.h/cpp`
 
