@@ -18,6 +18,36 @@ QtCommServer::QtCommServer() {
 
 QtCommServer::~QtCommServer() {
     stop();
+    if (tls_ctx_) {
+        SSL_CTX_free(tls_ctx_);
+        tls_ctx_ = nullptr;
+    }
+}
+
+// ======================== TLS 초기화 ========================
+
+bool QtCommServer::initTLS(const std::string& cert_path, const std::string& key_path, const std::string& ca_path) {
+    tls_ctx_ = TLS::ServerContext(cert_path.c_str(), key_path.c_str(), ca_path.c_str());
+    if (!tls_ctx_) {
+        std::cerr << "[QtComm] TLS context 초기화 실패" << std::endl;
+        return false;
+    }
+    std::cout << "[QtComm] TLS initialized (mTLS enabled)" << std::endl;
+    return true;
+}
+
+// ======================== Raw 패킷 전송 ========================
+
+bool QtCommServer::sendRaw(int client_fd, MessageType type, const std::vector<uint8_t>& data) {
+    PacketHeader header;
+    header.type = type;
+    header.body_length = static_cast<uint32_t>(data.size());
+
+    if (!sendExact(client_fd, &header, sizeof(header))) return false;
+    if (!data.empty()) {
+        if (!sendExact(client_fd, data.data(), data.size())) return false;
+    }
+    return true;
 }
 
 // ======================== 서버 시작 / 종료 ========================
@@ -88,6 +118,12 @@ void QtCommServer::stop() {
         client_fds_.clear();
     }
 
+    // TLS 세션 정리
+    {
+        std::lock_guard<std::mutex> lock(tls_mutex_);
+        tls_sessions_.clear();
+    }
+
     // 스레드 정리
     if (accept_thread_.joinable()) {
         accept_thread_.join();
@@ -142,6 +178,20 @@ void QtCommServer::acceptLoop() {
 void QtCommServer::clientHandler(int client_fd) {
     std::cout << "[QtComm] Handler started for fd: " << client_fd << std::endl;
 
+    // TLS 세션 생성 (tls_ctx_가 있으면 보안 모드)
+    bool tls_enabled = (tls_ctx_ != nullptr);
+    if (tls_enabled) {
+        std::lock_guard<std::mutex> lock(tls_mutex_);
+        tls_sessions_.emplace(client_fd, TLS::Session(tls_ctx_, true));
+
+        auto it = tls_sessions_.find(client_fd);
+        if (it == tls_sessions_.end() || !it->second.isValid()) {
+            std::cerr << "[QtComm] TLS session creation failed (fd: " << client_fd << ")" << std::endl;
+            close(client_fd);
+            return;
+        }
+    }
+
     while (is_running_) {
         // 1. 헤더 수신 (5바이트: Type 1 + BodyLength 4)
         PacketHeader header;
@@ -150,7 +200,6 @@ void QtCommServer::clientHandler(int client_fd) {
             break;
         }
 
-        // 네트워크 바이트 오더 -> 호스트 바이트 오더
         uint32_t body_len = header.body_length;
 
         // 안전 검사: 비정상적으로 큰 패킷 방지 (최대 1MB)
@@ -159,33 +208,99 @@ void QtCommServer::clientHandler(int client_fd) {
             break;
         }
 
-        // 2. JSON 본문 수신
-        json body = json::object(); // 기본값: 빈 JSON 객체
-
+        // 2. Body 수신
+        std::vector<char> buf(body_len);
         if (body_len > 0) {
-            std::vector<char> buf(body_len);
             if (!recvExact(client_fd, buf.data(), body_len)) {
                 std::cout << "[QtComm] Failed to receive body (fd: " << client_fd << ")" << std::endl;
                 break;
             }
+        }
 
+        // ===================== TLS 핸드셰이크 처리 =====================
+        if (tls_enabled) {
+            bool is_handshake = false;
+            bool handshake_done = false;
+            bool handshake_rejected = false;
+            std::vector<uint8_t> handshake_resp;
+            std::vector<uint8_t> plain;
+
+            // mutex 범위: decrypt/getHandshakeData만 보호
+            {
+                std::lock_guard<std::mutex> lock(tls_mutex_);
+                auto it = tls_sessions_.find(client_fd);
+                if (it == tls_sessions_.end()) break;
+                auto& session = it->second;
+
+                if (!session.isHandshakeDone()) {
+                    is_handshake = true;
+                    if (header.type != MessageType::HANDSHAKE) {
+                        std::cerr << "[QtComm] 핸드셰이크 완료 전 비허용 타입 수신 (fd: " << client_fd << ")" << std::endl;
+                        handshake_rejected = true;
+                    } else {
+                        session.decrypt(buf.data(), body_len);
+                        handshake_resp = session.getHandshakeData();
+                        handshake_done = session.isHandshakeDone();
+                    }
+                } else {
+                    plain = session.decrypt(buf.data(), body_len);
+                }
+            }
+            // mutex 해제됨 — 이후 sendRaw/on_message_ 안전
+
+            if (handshake_rejected) break;
+
+            if (is_handshake) {
+                if (!handshake_resp.empty()) {
+                    sendRaw(client_fd, MessageType::HANDSHAKE, handshake_resp);
+                }
+                if (handshake_done) {
+                    std::cout << "[QtComm] TLS handshake completed (fd: " << client_fd << ")" << std::endl;
+                }
+                continue;
+            }
+
+            // 암호화 통신
+            if (plain.empty()) {
+                continue;
+            }
+
+            json body = json::object();
             try {
-                body = json::parse(std::string(buf.begin(), buf.end()));
+                body = json::parse(std::string(plain.begin(), plain.end()));
             } catch (const json::parse_error& e) {
-                std::cerr << "[QtComm] JSON parse error: " << e.what() << std::endl;
-                // 파싱 실패해도 연결은 유지 (FAIL 응답 보내기)
+                std::cerr << "[QtComm] JSON parse error (decrypted): " << e.what() << std::endl;
                 sendMessage(client_fd, MessageType::FAIL, {{"error", "JSON parse error"}});
                 continue;
             }
-        }
 
-        std::cout << "[QtComm] Received: Type=0x" << std::hex 
-                  << static_cast<int>(header.type) << std::dec
-                  << " Body=" << body.dump() << std::endl;
+            std::cout << "[QtComm] Received (TLS): Type=0x" << std::hex
+                      << static_cast<int>(header.type) << std::dec
+                      << " Body=" << body.dump() << std::endl;
 
-        // 3. 콜백 호출 (AppController에서 처리)
-        if (on_message_) {
-            on_message_(client_fd, header.type, body);
+            if (on_message_) {
+                on_message_(client_fd, header.type, body);
+            }
+        } else {
+            // ===================== 평문 모드 (TLS 미사용) =====================
+            json body = json::object();
+            if (body_len > 0) {
+                try {
+                    body = json::parse(std::string(buf.begin(), buf.end()));
+                } catch (const json::parse_error& e) {
+                    std::cerr << "[QtComm] JSON parse error: " << e.what() << std::endl;
+                    sendMessage(client_fd, MessageType::FAIL, {{"error", "JSON parse error"}});
+                    continue;
+                }
+            }
+
+            std::cout << "[QtComm] Received: Type=0x" << std::hex
+                      << static_cast<int>(header.type) << std::dec
+                      << " Body=" << body.dump() << std::endl;
+
+            if (on_message_) {
+                on_message_(client_fd, header.type, body);
+            }
         }
     }
 
@@ -200,7 +315,13 @@ void QtCommServer::clientHandler(int client_fd) {
         client_roles_.erase(client_fd);
     }
 
-    // [추가] "나 끝났어" 표시 -> acceptLoop의 cleanupFinishedThreads()가 수거함
+    // TLS 세션 정리
+    {
+        std::lock_guard<std::mutex> lock(tls_mutex_);
+        tls_sessions_.erase(client_fd);
+    }
+
+    // "나 끝났어" 표시 -> acceptLoop의 cleanupFinishedThreads()가 수거함
     {
         std::lock_guard<std::mutex> lock(finished_mutex_);
         finished_fds_.insert(client_fd);
@@ -214,18 +335,37 @@ void QtCommServer::clientHandler(int client_fd) {
 bool QtCommServer::sendMessage(int client_fd, MessageType type, const json& body) {
     std::string body_str = body.dump();
 
-    // 헤더 구성
+    // TLS 암호화 전송
+    {
+        std::lock_guard<std::mutex> lock(tls_mutex_);
+        auto it = tls_sessions_.find(client_fd);
+        if (it != tls_sessions_.end() && it->second.isHandshakeDone()) {
+            auto cipher = it->second.encrypt(body_str.c_str(), body_str.size());
+            if (cipher.empty()) {
+                std::cerr << "[QtComm] Encrypt failed (fd: " << client_fd << ")" << std::endl;
+                return false;
+            }
+
+            PacketHeader header;
+            header.type = type;
+            header.body_length = static_cast<uint32_t>(cipher.size());
+
+            if (!sendExact(client_fd, &header, sizeof(header))) return false;
+            if (!sendExact(client_fd, cipher.data(), cipher.size())) return false;
+            return true;
+        }
+    }
+
+    // 평문 전송 (TLS 미사용 or 핸드셰이크 미완료)
     PacketHeader header;
     header.type = type;
     header.body_length = static_cast<uint32_t>(body_str.size());
 
-    // 헤더 전송
     if (!sendExact(client_fd, &header, sizeof(header))) {
         std::cerr << "[QtComm] Send header failed (fd: " << client_fd << ")" << std::endl;
         return false;
     }
 
-    // 본문 전송
     if (!body_str.empty()) {
         if (!sendExact(client_fd, body_str.c_str(), body_str.size())) {
             std::cerr << "[QtComm] Send body failed (fd: " << client_fd << ")" << std::endl;
@@ -319,16 +459,34 @@ void QtCommServer::cleanupFinishedThreads() {
 bool QtCommServer::sendImageMessage(int client_fd, const json& meta, const std::vector<char>& jpeg) {
     std::string meta_str = meta.dump();
 
-    // 헤더: Type=IMAGE, BodyLength=JSON 길이 (리틀 엔디안)
+    // TLS: JSON 메타만 암호화, JPEG는 평문
+    {
+        std::lock_guard<std::mutex> lock(tls_mutex_);
+        auto it = tls_sessions_.find(client_fd);
+        if (it != tls_sessions_.end() && it->second.isHandshakeDone()) {
+            auto cipher_meta = it->second.encrypt(meta_str.c_str(), meta_str.size());
+            if (cipher_meta.empty()) return false;
+
+            PacketHeader header;
+            header.type = MessageType::IMAGE;
+            header.body_length = static_cast<uint32_t>(cipher_meta.size());
+
+            if (!sendExact(client_fd, &header, sizeof(header))) return false;
+            if (!sendExact(client_fd, cipher_meta.data(), cipher_meta.size())) return false;
+            if (!jpeg.empty()) {
+                if (!sendExact(client_fd, jpeg.data(), jpeg.size())) return false;
+            }
+            return true;
+        }
+    }
+
+    // 평문 모드
     PacketHeader header;
     header.type = MessageType::IMAGE;
     header.body_length = static_cast<uint32_t>(meta_str.size());
 
-    // 1. 헤더 전송
     if (!sendExact(client_fd, &header, sizeof(header))) return false;
-    // 2. JSON 메타데이터 전송
     if (!sendExact(client_fd, meta_str.c_str(), meta_str.size())) return false;
-    // 3. JPEG 바이너리 전송
     if (!jpeg.empty()) {
         if (!sendExact(client_fd, jpeg.data(), jpeg.size())) return false;
     }

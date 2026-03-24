@@ -41,6 +41,7 @@ enum class MessageType : uint8_t {
     ASSIGN    = 0x08,  // 회원 등록
     META      = 0x09,  // 센서 데이터
     IMAGE     = 0x0a,  // 이미지 전송
+    HANDSHAKE = 0x0b,  // TLS 핸드셰이크
 };
 
 // 패킷 헤더 (총 5바이트: Type 1 + BodyLength 4)

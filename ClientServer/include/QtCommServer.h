@@ -12,6 +12,7 @@
 
 #include "Common.h"
 #include "json.hpp"
+#include "tls.hpp"
 
 using json = nlohmann::json;
 
@@ -23,6 +24,9 @@ class QtCommServer {
 public:
     QtCommServer();
     ~QtCommServer();
+
+    // TLS 초기화 (start() 전에 호출)
+    bool initTLS(const std::string& cert_path, const std::string& key_path, const std::string& ca_path);
 
     // 서버 시작 (지정된 포트에서 TCP 대기)
     void start(int port, QtMessageCallback callback);
@@ -53,6 +57,8 @@ public:
     int getClientCount();
 
 private:
+    // TLS 핸드셰이크 패킷 전송 (평문 헤더 + raw 바이너리)
+    bool sendRaw(int client_fd, MessageType type, const std::vector<uint8_t>& data);
     // 클라이언트 접속 수락 루프
     void acceptLoop();
 
@@ -84,6 +90,11 @@ private:
 
     // 메시지 수신 콜백
     QtMessageCallback on_message_;
+
+    // TLS 관련
+    SSL_CTX* tls_ctx_ = nullptr;
+    std::map<int, TLS::Session> tls_sessions_;
+    std::mutex tls_mutex_;
 };
 
 #endif // QT_COMM_SERVER_H

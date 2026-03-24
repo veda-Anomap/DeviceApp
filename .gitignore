@@ -43,3 +43,4 @@
 # Project Executables
 DeviceServer/device_server
 ClientServer/client_server
+*.key

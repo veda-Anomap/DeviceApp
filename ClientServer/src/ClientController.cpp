@@ -39,7 +39,12 @@ void ClientController::run() {
     // 2. DeviceServer에 접속 (카메라 리스트 + AI 이벤트 수신)
     internal_client_.start("127.0.0.1", 30000);
 
-    // 2. Qt 통신 서버 시작
+    // 2. TLS 초기화 (인증서 기반 mTLS)
+    if (!qt_server_.initTLS("Server/server.crt", "Server/server.key", "Server/ca.crt")) {
+        std::cerr << "[ClientServer] TLS init failed. Running without encryption." << std::endl;
+    }
+
+    // 3. Qt 통신 서버 시작
     qt_server_.start(20000, [this](int client_fd, MessageType type, const json& body) {
         onQtMessage(client_fd, type, body);
     });

@@ -10,7 +10,8 @@ CFLAGS += --sysroot=$(SYSROOT) \
           -I$(SYSROOT)/usr/lib/aarch64-linux-gnu/glib-2.0/include \
           -I$(SYSROOT)/usr/lib/aarch64-linux-gnu/gstreamer-1.0/include \
           -Iinclude \
-          -I../common
+          -I../common \
+          -I../crypt
 
 LDFLAGS += --sysroot=$(SYSROOT) \
            -L$(SYSROOT)/usr/lib/aarch64-linux-gnu \
