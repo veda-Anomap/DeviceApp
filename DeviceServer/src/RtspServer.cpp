@@ -3,111 +3,120 @@
 #include "RtspServer.h"
 
 void RtspServer::start() {
-    if (is_running_) return;
-    is_running_ = true;
+  if (is_running_)
+    return;
+  is_running_ = true;
 
-    if (!server_) {
-        server_ = gst_rtsp_server_new();
-        g_object_set(server_, "service", "8554", NULL);
-        
-        // 이 mounts_ 포인터가 없으면 addRelayPath 할 때 무조건 펑 터집니다.
-        mounts_ = gst_rtsp_server_get_mount_points(server_);
-    }
-    
-    // GStreamer의 엔진을 돌리기 전에 이미 Mounts(장부)는 준비되어 있어야 함
-    if (gst_rtsp_server_attach(server_, NULL) == 0) {
-        std::cerr << "RtspServer: Failed to attach to default context!" << std::endl;
-    }
+  if (!server_) {
+    server_ = gst_rtsp_server_new();
+    g_object_set(server_, "service", "8554", NULL);
 
-    // 2. GMainLoop 구동을 위한 전용 스레드 생성
-    loop_thread_ = std::thread(&RtspServer::runMainLoop, this);
-    std::cout << "RtspServer: GMainLoop thread started." << std::endl;
+    // 이 mounts_ 포인터가 없으면 addRelayPath 할 때 무조건 펑 터집니다.
+    mounts_ = gst_rtsp_server_get_mount_points(server_);
+  }
+
+  // GStreamer의 엔진을 돌리기 전에 이미 Mounts(장부)는 준비되어 있어야 함
+  if (gst_rtsp_server_attach(server_, NULL) == 0) {
+    std::cerr << "RtspServer: Failed to attach to default context!"
+              << std::endl;
+  }
+
+  // 2. GMainLoop 구동을 위한 전용 스레드 생성
+  loop_thread_ = std::thread(&RtspServer::runMainLoop, this);
+  std::cout << "RtspServer: GMainLoop thread started." << std::endl;
 }
 
 void RtspServer::stop() {
-    if (!is_running_) return;
-    is_running_ = false;
+  if (!is_running_)
+    return;
+  is_running_ = false;
 
-    if (loop_) {
-        g_main_loop_quit(loop_); // 루프 종료 신호
-    }
+  if (loop_) {
+    g_main_loop_quit(loop_); // 루프 종료 신호
+  }
 
-    if (loop_thread_.joinable()) {
-        loop_thread_.join();
-    }
+  if (loop_thread_.joinable()) {
+    loop_thread_.join();
+  }
 
-    if (loop_) {
-        g_main_loop_unref(loop_);
-        loop_ = nullptr;
-    }
+  if (loop_) {
+    g_main_loop_unref(loop_);
+    loop_ = nullptr;
+  }
 
-    // GObject 리소스 정리 (레퍼런스 카운트 누수 방지)
-    if (mounts_) {
-        g_object_unref(mounts_);
-        mounts_ = nullptr;
-    }
-    if (server_) {
-        g_object_unref(server_);
-        server_ = nullptr;
-    }
+  // GObject 리소스 정리 (레퍼런스 카운트 누수 방지)
+  if (mounts_) {
+    g_object_unref(mounts_);
+    mounts_ = nullptr;
+  }
+  if (server_) {
+    g_object_unref(server_);
+    server_ = nullptr;
+  }
 }
 
 void RtspServer::runMainLoop() {
-    loop_ = g_main_loop_new(nullptr, FALSE);
-    
-    std::cout << "RtspServer: GMainLoop is running." << std::endl;
-    g_main_loop_run(loop_); // 여기서 스레드가 블로킹됨
-    
-    std::cout << "RtspServer: GMainLoop has stopped." << std::endl;
+  loop_ = g_main_loop_new(nullptr, FALSE);
+
+  std::cout << "RtspServer: GMainLoop is running." << std::endl;
+  g_main_loop_run(loop_); // 여기서 스레드가 블로킹됨
+
+  std::cout << "RtspServer: GMainLoop has stopped." << std::endl;
 }
 
-RtspServer::RtspServer() : loop_(nullptr), server_(nullptr), mounts_(nullptr), is_running_(false) {
-    gst_init(nullptr, nullptr); // GStreamer 필수 초기화
+RtspServer::RtspServer()
+    : loop_(nullptr), server_(nullptr), mounts_(nullptr), is_running_(false) {
+  gst_init(nullptr, nullptr); // GStreamer 필수 초기화
 }
 
-RtspServer::~RtspServer() {
-    stop();
+RtspServer::~RtspServer() { stop(); }
+
+void RtspServer::addRelayPath(const DeviceInfo &info) {
+  if (!mounts_)
+    return;
+
+  // 한화 카메라는 릴레이 안 함! 서브 파이만 처리
+  if (info.type != DeviceType::SUB_PI) {
+    return;
+  }
+
+  // 중복 등록 방어: 기존 factory가 있으면 먼저 제거 (좀비 파이프라인 방지)
+  removeRelayPath(info.id);
+
+  // 파이프라인 구성:
+  //   buffer-size=2097152  : UDP 수신 버퍼 2MB (I-Frame burst 패킷 유실 방지)
+  //   명시적 caps           : caps negotiation 비용 제거 (즉시 디코딩 시작)
+  //   queue                : 수신/송신 스레드 분리 (역류 압력 차단)
+  std::string pipeline_str =
+      "( udpsrc port=" + std::to_string(info.udp_listen_port) +
+      " buffer-size=2097152"
+      " caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000,"
+      " encoding-name=(string)H264, payload=96\" ! "
+      "queue max-size-buffers=200 max-size-bytes=10485760 max-size-time=0 ! "
+      "rtph264depay ! "
+      "queue max-size-buffers=200 max-size-bytes=10485760 max-size-time=0 ! "
+      "h264parse config-interval=-1 ! "
+      "rtph264pay name=pay0 pt=96 config-interval=1 )";
+
+  GstRTSPMediaFactory *factory = gst_rtsp_media_factory_new();
+  gst_rtsp_media_factory_set_launch(factory, pipeline_str.c_str());
+  gst_rtsp_media_factory_set_shared(factory, TRUE);
+  // 클라이언트가 0명이 되어도 파이프라인을 멈추지 않음 (UDP 포트 선점 유지 →
+  // 503 방지)
+  gst_rtsp_media_factory_set_suspend_mode(factory, GST_RTSP_SUSPEND_MODE_NONE);
+
+  std::string path = "/" + info.id;
+  gst_rtsp_mount_points_add_factory(mounts_, path.c_str(), factory);
+
+  std::cout << "[RELAY] Active: UDP Port " << info.udp_listen_port << " -> "
+            << path << std::endl;
 }
 
-void RtspServer::addRelayPath(const DeviceInfo& info) {
-    if (!mounts_) return;
+void RtspServer::removeRelayPath(const std::string &device_id) {
+  if (!mounts_)
+    return;
 
-    // 한화 카메라는 릴레이 안 함! 서브 파이만 처리
-    if (info.type != DeviceType::SUB_PI) {
-        return; 
-    }
-
-    // 중복 등록 방어: 기존 factory가 있으면 먼저 제거 (좀비 파이프라인 방지)
-    removeRelayPath(info.id);
-
-    // 파이프라인 구성:
-    //   buffer-size=2097152  : UDP 수신 버퍼 2MB (I-Frame burst 패킷 유실 방지)
-    //   명시적 caps           : caps negotiation 비용 제거 (즉시 디코딩 시작)
-    //   queue                : 수신/송신 스레드 분리 (역류 압력 차단)
-    std::string pipeline_str = 
-        "( udpsrc port=" + std::to_string(info.udp_listen_port) + 
-        " buffer-size=2097152"
-        " caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000,"
-        " encoding-name=(string)H264, payload=96\" ! "
-        "rtph264depay ! queue ! "
-        "h264parse ! rtph264pay name=pay0 pt=96 config-interval=1 )";
-
-    GstRTSPMediaFactory* factory = gst_rtsp_media_factory_new();
-    gst_rtsp_media_factory_set_launch(factory, pipeline_str.c_str());
-    gst_rtsp_media_factory_set_shared(factory, TRUE);
-    // 클라이언트가 0명이 되어도 파이프라인을 멈추지 않음 (UDP 포트 선점 유지 → 503 방지)
-    gst_rtsp_media_factory_set_suspend_mode(factory, GST_RTSP_SUSPEND_MODE_NONE);
-
-    std::string path = "/" + info.id;
-    gst_rtsp_mount_points_add_factory(mounts_, path.c_str(), factory);
-
-    std::cout << "[RELAY] Active: UDP Port " << info.udp_listen_port << " -> " << path << std::endl;
-}
-
-void RtspServer::removeRelayPath(const std::string& device_id) {
-    if (!mounts_) return;
-
-    std::string path = "/" + device_id;
-    gst_rtsp_mount_points_remove_factory(mounts_, path.c_str());
-    std::cout << "[RELAY] Removed: " << path << std::endl;
+  std::string path = "/" + device_id;
+  gst_rtsp_mount_points_remove_factory(mounts_, path.c_str());
+  std::cout << "[RELAY] Removed: " << path << std::endl;
 }

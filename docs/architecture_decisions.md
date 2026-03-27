@@ -9,8 +9,9 @@
 
 **상태**: 채택됨 · **관련 이슈**: AN-105
 
-- **문제**: UDP 수신 버퍼 부족으로 I-Frame burst 시 패킷 유실 → 화면 깨짐. Caps negotiation 지연으로 최초 접속 시 수초 블랙스크린. 수신/송신 스레드 미분리로 역류 압력 발생.
-- **결정**: 파이프라인에 `buffer-size=2097152`(2MB), `queue` 엘리먼트, 명시적 caps(`media=video, clock-rate=90000, encoding-name=H264`) 추가
+- **문제**: UDP 수신 버퍼 부족으로 I-Frame burst 시 패킷 유실 → 화면 깨짐. Caps negotiation 지연으로 최초 접속 시 수초 블랙스크린. 수신/송신 스레드 미분리로 역류 압력 발생. 중간 접속 시 SPS/PPS 누락으로 디코딩 실패.
+- **결정**: 파이프라인에 `buffer-size=2097152`(2MB), `queue` 2개(3개 스레드 독립 구동, 200buf/10MB 상한), 명시적 caps, `h264parse config-interval=-1`(모든 키프레임 앞 SPS/PPS 삽입) 추가
+- **기각**: `udpsrc timeout=5s`는 Sub-Pi 영상 미수신 시 EOS를 발생시켜 `SUSPEND_MODE_NONE`과 충돌 → 검토 후 제거
 - **추가 수정**: `stop()`에서 `mounts_`/`server_` GObject `unref` 추가, `addRelayPath()`에 `removeRelayPath()` 후 재등록 방어 코드 삽입
 
 ---

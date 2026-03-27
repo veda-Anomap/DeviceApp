@@ -115,10 +115,13 @@ Sub-Pi (AI카메라) ──UDP 비콘 + TCP 5000──┐
 **변경 파일**: `RtspServer.cpp`
 
 - 파이프라인 `buffer-size=2097152` 추가 (I-Frame burst 시 UDP 패킷 유실 방지)
-- 파이프라인 `queue` 엘리먼트 삽입 (수신/송신 스레드 분리로 역류 압력 차단)
+- 파이프라인 `queue` 2개 삽입 (udpsrc→queue→depay→queue→parse→pay, 3개 스레드 독립 구동)
+  - `max-size-buffers=200, max-size-bytes=10MB, max-size-time=0` 명시적 크기 제한
 - 파이프라인 명시적 caps 지정 (`media=video, clock-rate=90000, encoding-name=H264`) → caps negotiation 비용 제거
+- `h264parse config-interval=-1` 추가 (모든 키프레임 앞에 SPS/PPS 헤더 삽입, `rtph264pay config-interval=1`과 이중 보장)
 - `stop()`에서 `mounts_`/`server_` GObject unref 추가 (레퍼런스 카운트 누수 수정)
 - `addRelayPath()`에 중복 등록 방어 추가 (`removeRelayPath()` 후 등록 → 좀비 파이프라인 방지)
+- `udpsrc timeout` 옵션은 `SUSPEND_MODE_NONE`과 충돌 우려로 검토 후 제거
 
 ### AN-104: 패킷 IP 주입 및 SUNAPI 프로필 유연화 (2026-03-18)
 **변경 파일**: `SubPiManager.cpp`, `OnvifScanner.h/cpp`
